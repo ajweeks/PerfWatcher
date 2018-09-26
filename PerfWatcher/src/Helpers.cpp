@@ -1,8 +1,45 @@
 #include "stdafx.hpp"
 
 #include <fstream>
+#include <sstream>
+#include <iomanip> // For setprecision
 
 #include "Helpers.hpp"
+
+bool ReadFile(const char* filePath, std::string& fileContents, bool bBinaryFile)
+{
+	int fileMode = std::ios::in | std::ios::ate;
+	if (bBinaryFile)
+	{
+		fileMode |= std::ios::binary;
+	}
+	std::ifstream file(filePath, fileMode);
+
+	if (!file)
+	{
+		printf("Unable to read file: %s\n", filePath);
+		return false;
+	}
+
+	std::streampos length = file.tellg();
+
+	fileContents.resize((size_t)length);
+
+	file.seekg(0, std::ios::beg);
+	file.read(&fileContents[0], length);
+	file.close();
+
+	// Remove extra null terminators caused by Windows line endings
+	for (u32 charIndex = 0; charIndex < fileContents.size() - 1; ++charIndex)
+	{
+		if (fileContents[charIndex] == '\0')
+		{
+			fileContents = fileContents.substr(0, charIndex);
+		}
+	}
+
+	return true;
+}
 
 bool ReadFile(const char* filePath, std::vector<char>& vec, bool bBinaryFile)
 {
@@ -28,6 +65,71 @@ bool ReadFile(const char* filePath, std::vector<char>& vec, bool bBinaryFile)
 	file.close();
 
 	return true;
+}
+
+std::vector<std::string> Split(const std::string& str, char delim)
+{
+	std::vector<std::string> result;
+	size_t i = 0;
+
+	size_t strLen = str.size();
+	while (i != strLen)
+	{
+		while (i != strLen && str[i] == delim)
+		{
+			++i;
+		}
+
+		size_t j = i;
+		while (j != strLen && str[j] != delim)
+		{
+			++j;
+		}
+
+		if (i != j)
+		{
+			result.push_back(str.substr(i, j - i));
+			i = j;
+		}
+	}
+
+	return result;
+}
+
+void TrimWhitespace(std::string& str)
+{
+	auto startIter = str.begin();
+	while (isspace(*startIter))
+	{
+		startIter = str.erase(startIter);
+	}
+
+	auto revIter = str.rbegin();
+	while (isspace(*revIter))
+	{
+		str.pop_back();
+		revIter = str.rbegin();
+	}
+}
+
+float ParseFloat(const std::string& floatStr)
+{
+	if (floatStr.empty())
+	{
+		printf("Invalid float string (empty)\n");
+		return -1.0f;
+	}
+
+	return (float)std::atof(floatStr.c_str());
+}
+
+std::string FloatToString(float f, i32 precision)
+{
+	std::stringstream stream;
+
+	stream << std::fixed << std::setprecision(precision) << f;
+
+	return stream.str();
 }
 
 bool LoadGLShaders(u32 program, const char* vertShaderPath, const char* fragShaderPath, GLuint& outVertShaderID, GLuint& outFragShaderID)
