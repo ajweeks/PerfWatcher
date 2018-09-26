@@ -1,0 +1,9 @@
+[submodule "PerfWatcher/dependencies/glm"]
+	path = PerfWatcher/dependencies/glm
+	url = https://github.com/ajweeks/glm
+[submodule "PerfWatcher/dependencies/glfw"]
+	path = PerfWatcher/dependencies/glfw
+	url = https://github.com/glfw/glfw
+[submodule "PerfWatcher/dependencies/imgui"]
+	path = PerfWatcher/dependencies/imgui
+	url = https://github.com/ajweeks/imgui
