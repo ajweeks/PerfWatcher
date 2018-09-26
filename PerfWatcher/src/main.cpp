@@ -3,120 +3,357 @@
 #include <cstdio>
 #include <windows.h>
 
+#pragma warning(push, 0)
 #include "imgui.h"
 #include "imgui/imgui_impl_glfw.h"
 #include "imgui/imgui_impl_opengl3.h"
+
+#include <glm/gtc/matrix_transform.hpp>
+#pragma warning(pop)
 
 #include "Helpers.hpp"
 
 GLFWwindow* g_MainWindow = nullptr;
 glm::vec2i g_WindowSize = glm::vec2i(1280, 720);
+float g_DT = 0.0f;
+bool g_LMBDown = false;
+glm::vec2i g_CursorPos;
 
 GLuint g_MainProgram;
 GLuint g_FullScreenTriVAO;
 GLuint g_FullScreenTriVBO;
 
-void GLFWErrorCallback(i32 error, const char* description);
-void GLFWWindowSizeCallback(GLFWwindow* window, i32 width, i32 height);
+std::vector<float*> g_VertexBuffers;
+std::vector<GLuint> g_DataVAOs;
+std::vector<GLuint> g_DataVBOs;
 
-void CreateWindowAndContext();
-void ShutDown();
+extern bool g_MouseJustPressed[5];
+
+void GLFWErrorCallback(i32 error, const char* description);
+void GLFWWindowSizeCallback(GLFWwindow* window, int width, int height);
+void GLFWCursorPosCallback(GLFWwindow* window, double x, double y);
+void GLFWMouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+const char* GLFWGetClipboardText(void* user_data);
+void GLFWSetClipboardText(void* user_data, const char* text);
+void GLFWScrollCallback(GLFWwindow* window, double xOffset, double yOffset);
+void GLFWKeyCallback(GLFWwindow* window, int key, int, int action, int mods);
+void GLFWCharCallback(GLFWwindow* window, unsigned int c);
+
 
 bool ParseCSV(const char* filePath, std::vector<std::string>& outHeaders, std::vector<std::vector<float>>& outDataRows);
 
 void GenerateFullScreenTri();
+void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, GLuint& VBO);
 void DescribeShaderVertexAttributes();
 
 void DrawFullScreenQuad();
 
-int main()
+struct OrbitCam
 {
-	CreateWindowAndContext();
-
-	std::vector<std::string> headers;
-	std::vector<std::vector<float>> dataRows;
-	const char* csvFileFilePath = RESOURCE_LOCATION "input/input.csv";
-	if (!ParseCSV(csvFileFilePath, headers, dataRows))
+	OrbitCam()
 	{
-		printf("No loaded data!\n");
+		FOV = glm::radians(80.0f);
+		aspectRatio = g_WindowSize.x / (float)g_WindowSize.y;
+		nearPlane = 0.1f;
+		farPlane = 1000.0f;
+
+		distFromCenter = 100.0f;
+
+		center = glm::vec3(0.0f);
+		offset = glm::vec3(100.0f, 0.0f, 0.0f);
+
+		CalculateBasis();
 	}
 
-	GLuint vertShaderID, fragShaderID;
-	g_MainProgram = glCreateProgram();
-	LoadGLShaders(g_MainProgram, RESOURCE_LOCATION "shaders/vert.v", RESOURCE_LOCATION "shaders/frag.f", vertShaderID, fragShaderID);
-	LinkProgram(g_MainProgram);
-
-	glUseProgram(g_MainProgram);
-
-	GenerateFullScreenTri();
-
-	glEnable(GL_DEPTH_TEST);
-
-	GLint viewProjLocation = glGetUniformLocation(g_MainProgram, "viewProj");
-	GLint modelLocation = glGetUniformLocation(g_MainProgram, "model");
-	float timePrev = (float)glfwGetTime();
-	while (!glfwWindowShouldClose(g_MainWindow))
+	glm::mat4 GetViewProj()
 	{
-		float timeNow = (float)glfwGetTime();
-		float dt = timeNow - timePrev;
-		timePrev = timeNow;
+		float aspectRatio = g_WindowSize.x / (float)g_WindowSize.y;
 
-		glfwPollEvents();
+		glm::mat4 projection = glm::perspective(FOV, aspectRatio, nearPlane, farPlane);
+		glm::mat4 view = glm::lookAt(offset, center, glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 viewProj = projection * view;
 
-		// Start the ImGui frame
-		ImGui_ImplOpenGL3_NewFrame();
-		ImGui_ImplGlfw_NewFrame();
-		ImGui::NewFrame();
+		return viewProj;
+	}
 
+	void Orbit(float horizontal, float vertical)
+	{
+		offset += right * horizontal + up * vertical;
+		offset = glm::normalize(offset) * distFromCenter;
+
+		CalculateBasis();
+	}
+
+	void Zoom(float amount)
+	{
+		distFromCenter += amount * zoomSpeed;
+		offset = glm::normalize(offset) * distFromCenter;
+	}
+
+	void CalculateBasis()
+	{
+		glm::mat4 view = glm::lookAt(offset, center, glm::vec3(0.0f, 1.0f, 0.0f));
+		right = view[0];
+		up = view[1];
+		forward = view[2];
+	}
+
+	float FOV;
+	float aspectRatio;
+	float nearPlane;
+	float farPlane;
+	float distFromCenter;
+
+	glm::vec3 center;
+	glm::vec3 offset;
+
+	glm::vec3 right;
+	glm::vec3 up;
+	glm::vec3 forward;
+
+	float orbitSpeed = 10.0f;
+	float zoomSpeed = 4.0f;
+};
+
+OrbitCam g_OrbitCam;
+
+class PerfWatcher
+{
+public:
+	void Init()
+	{
+		glm::vec3 a(1.0f, 2.0f, 3.0f);
+		ImVec2 v(4.0f, 5.0f);
+
+		glfwSetErrorCallback(GLFWErrorCallback);
+
+		if (glfwInit() == GLFW_FALSE)
 		{
-			static float f = 0.0f;
-			static int counter = 0;
-			ImGui::Text("Hello, world!");                           // Display some text (you can use a format string too)
-			ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-			//ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
-			//ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our windows open/close state
-			//ImGui::Checkbox("Another Window", &show_another_window);
-
-			if (ImGui::Button("Button"))                            // Buttons return true when clicked (NB: most widgets return true when edited/activated)
-				counter++;
-			ImGui::SameLine();
-			ImGui::Text("counter = %d", counter);
-
-			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+			printf("Failed to initialize glfw!\n");
+			exit(EXIT_FAILURE);
 		}
 
-		DrawFullScreenQuad();
+#if _DEBUG
+		glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+#endif // _DEBUG
 
-		glm::mat4 viewProj = glm::mat4(1.0f);
-		glm::mat4 model = glm::mat4(1.0f);
+		// Don't hide window when losing focus in Windowed Fullscreen
+		glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
+
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+		glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+
+		bool bMaximized = false;
+		if (bMaximized)
+		{
+			glfwWindowHint(GLFW_MAXIMIZED, GL_TRUE);
+		}
+
+		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+		const char* titleString = "PerfWatcher v0.0.1";
+		g_MainWindow = glfwCreateWindow(g_WindowSize.x, g_WindowSize.y, titleString, NULL, NULL);
+		if (!g_MainWindow)
+		{
+			printf("Failed to create glfw Window! Exiting...\n");
+			glfwTerminate();
+			exit(EXIT_FAILURE);
+		}
+
+		glfwSetWindowUserPointer(g_MainWindow, this);
+		glfwSetWindowSizeCallback(g_MainWindow, GLFWWindowSizeCallback);
+		glfwSetCursorPosCallback(g_MainWindow, GLFWCursorPosCallback);
+		glfwSetMouseButtonCallback(g_MainWindow, GLFWMouseButtonCallback);
+		glfwSetScrollCallback(g_MainWindow, GLFWScrollCallback);
+		glfwSetKeyCallback(g_MainWindow, GLFWKeyCallback);
+		glfwSetCharCallback(g_MainWindow, GLFWCharCallback);
+
+		glfwMakeContextCurrent(g_MainWindow);
+
+		bool bEnableVSync = true;
+		glfwSwapInterval(bEnableVSync ? 1 : 0);
+
+		gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+
+		IMGUI_CHECKVERSION();
+		ImGui::CreateContext();
+		ImGuiIO& io = ImGui::GetIO(); (void)io;
+		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable Keyboard Controls
+		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;   // Enable Gamepad Controls
+
+		ImGui_ImplGlfw_InitForOpenGL(g_MainWindow, true);
+		ImGui_ImplOpenGL3_Init();
+
+		// Setup style
+		ImGui::StyleColorsDark();
+
+		io.SetClipboardTextFn = GLFWSetClipboardText;
+		io.GetClipboardTextFn = GLFWGetClipboardText;
+
+#if _DEBUG
+		glEnable(GL_DEBUG_OUTPUT);
+#endif
+
+		glClearColor(1, 0, 1, 1);
 
 
 
-		float FPS = 1.0f / dt;
-		std::string windowTitle = "PerfWatcher v0.0.1 - " + FloatToString(dt, 2) + "ms / " + FloatToString(FPS, 0) + " fps";
-		glfwSetWindowTitle(g_MainWindow, windowTitle.c_str());
+		g_OrbitCam = OrbitCam();
 
+		std::vector<std::string> headers;
+		const char* csvFileFilePath = RESOURCE_LOCATION "input/input.csv";
+		if (!ParseCSV(csvFileFilePath, headers, dataRows))
+		{
+			printf("No loaded data!\n");
+		}
 
-		ImGui::Render();
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+		GLuint vertShaderID, fragShaderID;
+		g_MainProgram = glCreateProgram();
+		LoadGLShaders(g_MainProgram, RESOURCE_LOCATION "shaders/vert.v", RESOURCE_LOCATION "shaders/frag.f", vertShaderID, fragShaderID);
+		LinkProgram(g_MainProgram);
 
+		glUseProgram(g_MainProgram);
 
-		glfwSwapBuffers(g_MainWindow);
+		GenerateFullScreenTri();
+
+		for (const auto& row : dataRows)
+		{
+			GLuint VAO, VBO;
+
+			GenerateVertexBufferFromData(row, VAO, VBO);
+
+			g_DataVAOs.push_back(VAO);
+			g_DataVBOs.push_back(VBO);
+		}
+
+		glEnable(GL_DEPTH_TEST);
 	}
 
+	void Loop()
+	{
+		float timePrev = (float)glfwGetTime();
+		while (!glfwWindowShouldClose(g_MainWindow))
+		{
+			float timeNow = (float)glfwGetTime();
+			g_DT = timeNow - timePrev;
+			timePrev = timeNow;
 
-	ShutDown();
+			glfwPollEvents();
+
+			// Start the ImGui frame
+			ImGui_ImplOpenGL3_NewFrame();
+			ImGui_ImplGlfw_NewFrame();
+			ImGui::NewFrame();
+
+			{
+				static float f = 0.0f;
+				static int counter = 0;
+				ImGui::Text("Hello, world!");                           // Display some text (you can use a format string too)
+				ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
+																		//ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
+
+																		//ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our windows open/close state
+																		//ImGui::Checkbox("Another Window", &show_another_window);
+
+				if (ImGui::Button("Button"))                            // Buttons return true when clicked (NB: most widgets return true when edited/activated)
+					counter++;
+				ImGui::SameLine();
+				ImGui::Text("counter = %d", counter);
+
+				ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+			}
+
+			glDepthMask(GL_TRUE);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+			DrawFullScreenQuad();
+
+			glm::mat4 viewProj = g_OrbitCam.GetViewProj();
+
+			glDepthMask(GL_TRUE);
+			glDepthFunc(GL_LEQUAL);
+
+			float xScale = 100.0f;
+			i32 plotCount = (i32)g_DataVAOs.size();
+			for (i32 i = 0; i < plotCount; ++i)
+			{
+				glm::mat4 model = glm::translate(glm::mat4(1.0f),
+					glm::vec3(-xScale / 2.0f + xScale * (float)i / (plotCount - 1), 0.0f, 0.0f));
+
+				glBindVertexArray(g_DataVAOs[i]);
+				glBindBuffer(GL_ARRAY_BUFFER, g_DataVBOs[i]);
+
+				GLint viewProjLocation = glGetUniformLocation(g_MainProgram, "viewProj");
+				GLint modelLocation = glGetUniformLocation(g_MainProgram, "model");
+				glUniformMatrix4fv(viewProjLocation, 1, GL_FALSE, &viewProj[0][0]);
+				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &model[0][0]);
+
+				glDrawArrays(GL_LINE_STRIP, 0, dataRows[i].size());
+			}
+
+			float FPS = 1.0f / g_DT;
+			std::string windowTitle = "PerfWatcher v0.0.1 - " + FloatToString(g_DT, 2) + "ms / " + FloatToString(FPS, 0) + " fps";
+			glfwSetWindowTitle(g_MainWindow, windowTitle.c_str());
+
+
+			ImGui::Render();
+			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+
+			glfwSwapBuffers(g_MainWindow);
+		}
+	}
+
+	void Destroy()
+	{
+		if (g_MainWindow)
+		{
+			glfwDestroyWindow(g_MainWindow);
+			g_MainWindow = nullptr;
+		}
+
+		for (auto buffer : g_VertexBuffers)
+		{
+			free(buffer);
+		}
+
+		printf("goodbye, world\n");
+	}
+
+	void CursorPosCallback(float x, float y)
+	{
+		glm::vec2i newPos = glm::vec2i((i32)x, (i32)y);
+		glm::vec2i dMousePos = newPos - g_CursorPos;
+		g_CursorPos = newPos;
+
+		if (g_LMBDown)
+		{
+			float scale = g_DT * g_OrbitCam.orbitSpeed;
+			g_OrbitCam.Orbit(dMousePos.x * scale, dMousePos.y * scale);
+		}
+	}
+
+	void ScrollCallback(float xOffset, float yOffset)
+	{
+		g_OrbitCam.Zoom(-yOffset);
+	}
+
+private:
+	std::vector<std::vector<float>> dataRows;
+
+};
+
+PerfWatcher g_Application;
+
+int main()
+{
+	g_Application = PerfWatcher();
+
+	g_Application.Init();
+	g_Application.Loop();
+	g_Application.Destroy();
 
 	system("PAUSE");
-}
-
-void GLFWWindowSizeCallback(GLFWwindow* window, i32 width, i32 height)
-{
-	UNREFERENCED_PARAMETER(window);
-
-	g_WindowSize = glm::vec2i(width, height);
-	glViewport(0, 0, width, height);
 }
 
 void GLFWErrorCallback(i32 error, const char* description)
@@ -124,80 +361,89 @@ void GLFWErrorCallback(i32 error, const char* description)
 	printf("GLFW Error: %i: %s\n", error, description);
 }
 
-void CreateWindowAndContext()
+void GLFWWindowSizeCallback(GLFWwindow* window, int width, int height)
 {
-	glm::vec3 a(1.0f, 2.0f, 3.0f);
-	ImVec2 v(4.0f, 5.0f);
+	UNREFERENCED_PARAMETER(window);
 
-	glfwSetErrorCallback(GLFWErrorCallback);
-
-	if (glfwInit() == GLFW_FALSE)
-	{
-		printf("Failed to initialize glfw!\n");
-		exit(EXIT_FAILURE);
-	}
-
-#if _DEBUG
-	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
-#endif // _DEBUG
-
-	// Don't hide window when losing focus in Windowed Fullscreen
-	glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
-
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-
-	bool bMaximized = false;
-	if (bMaximized)
-	{
-		glfwWindowHint(GLFW_MAXIMIZED, GL_TRUE);
-	}
-
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-	const char* titleString = "PerfWatcher v0.0.1";
-	g_MainWindow = glfwCreateWindow(g_WindowSize.x, g_WindowSize.y, titleString, NULL, NULL);
-	if (!g_MainWindow)
-	{
-		printf("Failed to create glfw Window! Exiting...\n");
-		glfwTerminate();
-		exit(EXIT_FAILURE);
-	}
-
-	//glfwSetWindowUserPointer(g_MainWindow, this);
-	glfwSetWindowSizeCallback(g_MainWindow, GLFWWindowSizeCallback);
-
-	glfwMakeContextCurrent(g_MainWindow);
-
-	bool bEnableVSync = true;
-	glfwSwapInterval(bEnableVSync ? 1 : 0);
-
-	gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
-
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable Keyboard Controls
-	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;   // Enable Gamepad Controls
-
-	ImGui_ImplGlfw_InitForOpenGL(g_MainWindow, true);
-	ImGui_ImplOpenGL3_Init();
-
-	// Setup style
-	ImGui::StyleColorsDark();
-
-	glClearColor(1, 0, 1, 1);
+	g_WindowSize = glm::vec2i(width, height);
+	glViewport(0, 0, width, height);
 }
 
-void ShutDown()
+void GLFWCursorPosCallback(GLFWwindow* window, double x, double y)
 {
-	if (g_MainWindow)
+	PerfWatcher* application = (PerfWatcher*)glfwGetWindowUserPointer(window);
+	application->CursorPosCallback((float)x, (float)y);
+}
+
+void GLFWMouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+{
+	if (action == GLFW_PRESS && button >= 0 && button < ARRAY_LENGTH(g_MouseJustPressed))
 	{
-		glfwDestroyWindow(g_MainWindow);
-		g_MainWindow = nullptr;
+		g_MouseJustPressed[button] = true;
 	}
 
-	printf("goodbye, world\n");
+	if (action == GLFW_PRESS)
+	{
+		if (button == GLFW_MOUSE_BUTTON_LEFT)
+		{
+			g_LMBDown = true;
+		}
+	}
+	else
+	{
+		if (button == GLFW_MOUSE_BUTTON_LEFT)
+		{
+			g_LMBDown = false;
+		}
+	}
+}
+
+const char* GLFWGetClipboardText(void* user_data)
+{
+	return glfwGetClipboardString((GLFWwindow*)user_data);
+}
+
+void GLFWSetClipboardText(void* user_data, const char* text)
+{
+	glfwSetClipboardString((GLFWwindow*)user_data, text);
+}
+
+void GLFWScrollCallback(GLFWwindow* window, double xOffset, double yOffset)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	io.MouseWheelH += (float)xOffset;
+	io.MouseWheel += (float)yOffset;
+
+	PerfWatcher* application = (PerfWatcher*)glfwGetWindowUserPointer(window);
+	application->ScrollCallback((float)xOffset, (float)yOffset);
+}
+
+void GLFWKeyCallback(GLFWwindow*, int key, int, int action, int mods)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	if (action == GLFW_PRESS)
+	{
+		io.KeysDown[key] = true;
+	}
+	if (action == GLFW_RELEASE)
+	{
+		io.KeysDown[key] = false;
+	}
+
+	(void)mods; // Modifiers are not reliable across systems
+	io.KeyCtrl = io.KeysDown[GLFW_KEY_LEFT_CONTROL] || io.KeysDown[GLFW_KEY_RIGHT_CONTROL];
+	io.KeyShift = io.KeysDown[GLFW_KEY_LEFT_SHIFT] || io.KeysDown[GLFW_KEY_RIGHT_SHIFT];
+	io.KeyAlt = io.KeysDown[GLFW_KEY_LEFT_ALT] || io.KeysDown[GLFW_KEY_RIGHT_ALT];
+	io.KeySuper = io.KeysDown[GLFW_KEY_LEFT_SUPER] || io.KeysDown[GLFW_KEY_RIGHT_SUPER];
+}
+
+void GLFWCharCallback(GLFWwindow*, unsigned int c)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	if (c > 0 && c < 0x10000)
+	{
+		io.AddInputCharacter((unsigned short)c);
+	}
 }
 
 bool ParseCSV(const char* filePath, std::vector<std::string>& outHeaders, std::vector<std::vector<float>>& outDataRows)
@@ -266,7 +512,10 @@ void GenerateFullScreenTri()
 	if (!vertexBuffer)
 	{
 		printf("Failed to allocate memory for vertex buffer!\n");
+		return;
 	}
+
+	g_VertexBuffers.push_back((float*)vertexBuffer);
 
 	float* currentBufferPos = (float*)vertexBuffer;
 	for (i32 i = 0; i < vertexCount; ++i)
@@ -285,8 +534,59 @@ void GenerateFullScreenTri()
 	glBindBuffer(GL_ARRAY_BUFFER, g_FullScreenTriVBO);
 	glBufferData(GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GL_STATIC_DRAW);
 
+	DescribeShaderVertexAttributes();
+}
 
-	glBindVertexArray(g_FullScreenTriVBO);
+void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, GLuint& VBO)
+{
+	i32 vertexCount = (i32)data.size();
+
+	std::vector<glm::vec3> positions;
+	positions.reserve(vertexCount);
+
+	std::vector<glm::vec4> colours;
+	colours.reserve(vertexCount);
+
+	float yScale = 100.0f;
+	float zScale = 100.0f;
+
+	float currentZ = 0.0f;
+	for (i32 i = 0; i < vertexCount; ++i)
+	{
+		float percent = (float)i / vertexCount;
+		positions.emplace_back(0.0f, data[i] * yScale, currentZ);
+		colours.emplace_back(percent, 1.0f - percent, 0.5f, 1.0f);
+
+		currentZ += zScale * (1.0f / vertexCount);
+	}
+
+	i32 vertexStride = sizeof(glm::vec3) + sizeof(glm::vec4);
+	i32 vertexBufferSize = vertexCount * vertexStride;
+	void* vertexBuffer = malloc(vertexBufferSize);
+	if (!vertexBuffer)
+	{
+		printf("Failed to allocate memory for vertex buffer!\n");
+		return;
+	}
+
+	g_VertexBuffers.push_back((float*)vertexBuffer);
+
+	float* currentBufferPos = (float*)vertexBuffer;
+	for (i32 i = 0; i < vertexCount; ++i)
+	{
+		memcpy(currentBufferPos, &positions[i].x, sizeof(glm::vec3));
+		currentBufferPos += 3;
+
+		memcpy(currentBufferPos, &colours[i].x, sizeof(glm::vec4));
+		currentBufferPos += 4;
+	}
+
+	glGenVertexArrays(1, &VAO);
+	glBindVertexArray(VAO);
+
+	glGenBuffers(1, &VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GL_STATIC_DRAW);
 
 	DescribeShaderVertexAttributes();
 }
@@ -313,12 +613,8 @@ void DrawFullScreenQuad()
 
 	glViewport(0, 0, g_WindowSize.x, g_WindowSize.y);
 
-	glDepthMask(GL_TRUE);
-	glDepthFunc(GL_LEQUAL);
-
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-	glCullFace(GL_NONE);
+	glDepthMask(GL_FALSE);
+	glDisable(GL_CULL_FACE);
 
 	glm::mat4 identity = glm::mat4(1.0f);
 

@@ -18,3 +18,5 @@ void TrimWhitespace(std::string& str);
 bool LoadGLShaders(u32 program, const char* vertShaderPath, const char* fragShaderPath, GLuint& outVertShaderID, GLuint& outFragShaderID);
 
 bool LinkProgram(u32 program);
+
+#define ARRAY_LENGTH(arr) ((int)(sizeof(arr)/sizeof(*arr)))
