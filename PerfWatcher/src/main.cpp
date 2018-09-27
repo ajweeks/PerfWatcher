@@ -19,15 +19,29 @@ float g_DT = 0.0f;
 bool g_LMBDown = false;
 glm::vec2i g_CursorPos;
 
+float g_DataPointSize = 0.5f;
+
+float g_xScale = 100.0f;
+float g_yScale = 100.0f;
+float g_zScale = 100.0f;
+
 GLuint g_MainProgram;
+float* g_FullScreenTriVertexBuffer;
 GLuint g_FullScreenTriVAO;
 GLuint g_FullScreenTriVBO;
 
-std::vector<float*> g_VertexBuffers;
+std::vector<glm::mat4> g_DataPlotModelMats;
+std::vector<float*> g_DataPlotVertexBuffers;
 std::vector<GLuint> g_DataVAOs;
 std::vector<GLuint> g_DataVBOs;
 
+std::vector<float*> g_DataPointVertexBuffers;
+std::vector<glm::mat4> g_DataPointModelMats;
+std::vector<GLuint> g_DataPointVAOs;
+std::vector<GLuint> g_DataPointVBOs;
+
 extern bool g_MouseJustPressed[5];
+
 
 void GLFWErrorCallback(i32 error, const char* description);
 void GLFWWindowSizeCallback(GLFWwindow* window, int width, int height);
@@ -40,10 +54,11 @@ void GLFWKeyCallback(GLFWwindow* window, int key, int, int action, int mods);
 void GLFWCharCallback(GLFWwindow* window, unsigned int c);
 
 
-bool ParseCSV(const char* filePath, std::vector<std::string>& outHeaders, std::vector<std::vector<float>>& outDataRows);
+bool ParseCSV(const char* filePath, std::vector<std::string>& outHeaders, std::vector<std::vector<float>>& outDataRows, glm::vec2& outMinmMaxValues, i32 maxRowCount = -1);
 
 void GenerateFullScreenTri();
 void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, GLuint& VBO);
+void GenerateCubeVertexBuffer(float size, GLuint& VAO, GLuint& VBO);
 void DescribeShaderVertexAttributes();
 
 void DrawFullScreenQuad();
@@ -67,7 +82,7 @@ struct OrbitCam
 
 	glm::mat4 GetViewProj()
 	{
-		float aspectRatio = g_WindowSize.x / (float)g_WindowSize.y;
+		aspectRatio = g_WindowSize.x / (float)g_WindowSize.y;
 
 		glm::mat4 projection = glm::perspective(FOV, aspectRatio, nearPlane, farPlane);
 		glm::mat4 view = glm::lookAt(offset, center, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -96,6 +111,8 @@ struct OrbitCam
 		right = view[0];
 		up = view[1];
 		forward = view[2];
+
+		printf("Basis: (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f)\n", right.x, right.y, right.z, up.x, up.y, up.z, forward.x, forward.y, forward.z);
 	}
 
 	float FOV;
@@ -201,11 +218,14 @@ public:
 		g_OrbitCam = OrbitCam();
 
 		std::vector<std::string> headers;
-		const char* csvFileFilePath = RESOURCE_LOCATION "input/input.csv";
-		if (!ParseCSV(csvFileFilePath, headers, dataRows))
+		const char* csvFileFilePath = RESOURCE_LOCATION "input/input-01.csv";
+		glm::vec2 minMaxValues;
+		if (!ParseCSV(csvFileFilePath, headers, dataRows, minMaxValues, 10))
 		{
 			printf("No loaded data!\n");
 		}
+
+		g_yScale = 100.0f / (minMaxValues.y - minMaxValues.x);
 
 		GLuint vertShaderID, fragShaderID;
 		g_MainProgram = glCreateProgram();
@@ -216,15 +236,38 @@ public:
 
 		GenerateFullScreenTri();
 
-		for (const auto& row : dataRows)
+		i32 plotCount = (i32)dataRows.size();
+		for (i32 i = 0; i < plotCount; ++i)
 		{
+			const std::vector<float>& row = dataRows[i];
+
 			GLuint VAO, VBO;
 
 			GenerateVertexBufferFromData(row, VAO, VBO);
 
 			g_DataVAOs.push_back(VAO);
 			g_DataVBOs.push_back(VBO);
+
+			glm::vec3 plotTranslation = glm::vec3(-g_xScale / 2.0f + g_xScale * (float)i / (plotCount - 1), 0.0f, 0.0f);
+			glm::mat4 model = glm::translate(glm::mat4(1.0f), plotTranslation);
+			g_DataPlotModelMats.push_back(model);
+
+			for (i32 j = 0; j < (i32)row.size(); ++j)
+			{
+				GLuint pointVAO, pointVBO;
+				float percent = (float)j / row.size();
+
+				GenerateCubeVertexBuffer(g_DataPointSize, pointVAO, pointVBO);
+
+				glm::vec3 dataPointTranslation = plotTranslation + glm::vec3(0.0f, row[j] * g_yScale, percent * g_zScale);
+				glm::mat4 dataPointModel = glm::translate(glm::mat4(1.0f), dataPointTranslation);
+				g_DataPointModelMats.push_back(dataPointModel);
+
+				g_DataPointVAOs.push_back(pointVAO);
+				g_DataPointVBOs.push_back(pointVBO);
+			}
 		}
+
 
 		glEnable(GL_DEPTH_TEST);
 	}
@@ -273,22 +316,29 @@ public:
 			glDepthMask(GL_TRUE);
 			glDepthFunc(GL_LEQUAL);
 
-			float xScale = 100.0f;
 			i32 plotCount = (i32)g_DataVAOs.size();
 			for (i32 i = 0; i < plotCount; ++i)
 			{
-				glm::mat4 model = glm::translate(glm::mat4(1.0f),
-					glm::vec3(-xScale / 2.0f + xScale * (float)i / (plotCount - 1), 0.0f, 0.0f));
-
 				glBindVertexArray(g_DataVAOs[i]);
 				glBindBuffer(GL_ARRAY_BUFFER, g_DataVBOs[i]);
 
 				GLint viewProjLocation = glGetUniformLocation(g_MainProgram, "viewProj");
 				GLint modelLocation = glGetUniformLocation(g_MainProgram, "model");
 				glUniformMatrix4fv(viewProjLocation, 1, GL_FALSE, &viewProj[0][0]);
-				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &model[0][0]);
+				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &g_DataPlotModelMats[i][0][0]);
 
 				glDrawArrays(GL_LINE_STRIP, 0, dataRows[i].size());
+
+				for (const glm::mat4& dataPointModelMat : g_DataPointModelMats)
+				{
+					glBindVertexArray(g_DataPointVAOs[i]);
+					glBindBuffer(GL_ARRAY_BUFFER, g_DataPointVBOs[i]);
+
+					GLint modelLocation = glGetUniformLocation(g_MainProgram, "model");
+					glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &dataPointModelMat[0][0]);
+
+					glDrawArrays(GL_TRIANGLES, 0, dataRows[i].size());
+				}
 			}
 
 			float FPS = 1.0f / g_DT;
@@ -312,7 +362,14 @@ public:
 			g_MainWindow = nullptr;
 		}
 
-		for (auto buffer : g_VertexBuffers)
+		free(g_FullScreenTriVertexBuffer);
+
+		for (auto buffer : g_DataPointVertexBuffers)
+		{
+			free(buffer);
+		}
+
+		for (auto buffer : g_DataPlotVertexBuffers)
 		{
 			free(buffer);
 		}
@@ -446,8 +503,11 @@ void GLFWCharCallback(GLFWwindow*, unsigned int c)
 	}
 }
 
-bool ParseCSV(const char* filePath, std::vector<std::string>& outHeaders, std::vector<std::vector<float>>& outDataRows)
+bool ParseCSV(const char* filePath, std::vector<std::string>& outHeaders, std::vector<std::vector<float>>& outDataRows, glm::vec2& outMinmMaxValues, i32 maxRowCount /* = -1 */)
 {
+	float minValue = FLT_MAX;
+	float maxValue = FLT_MIN;
+
 	std::string csvFileContents;
 	if (!ReadFile(filePath, csvFileContents, false))
 	{
@@ -480,11 +540,40 @@ bool ParseCSV(const char* filePath, std::vector<std::string>& outHeaders, std::v
 
 		for (i32 j = 0; j < columnCount; ++j)
 		{
-			row.push_back(ParseFloat(rowEntries[j]));
+			float dataPoint = ParseFloat(rowEntries[j]);
+			if (dataPoint > maxValue)
+			{
+				maxValue = dataPoint;
+			}
+			if (dataPoint < minValue)
+			{
+				minValue = dataPoint;
+			}
+			row.push_back(dataPoint);
 		}
 
-		outDataRows.push_back(row);
+		bool bRowContainsData = false;
+		for (float dataPoint : row)
+		{
+			if (dataPoint != 0.0f)
+			{
+				bRowContainsData = true;
+				break;
+			}
+		}
+
+		if (bRowContainsData)
+		{
+			outDataRows.push_back(row);
+
+			if (maxRowCount != -1 && (i32)outDataRows.size() >= maxRowCount)
+			{
+				break;
+			}
+		}
 	}
+	outMinmMaxValues.x = minValue;
+	outMinmMaxValues.y = maxValue;
 
 	printf("Finished parsing csv file: %d rows, %d cols\n", outDataRows.size(), columnCount);
 
@@ -515,7 +604,7 @@ void GenerateFullScreenTri()
 		return;
 	}
 
-	g_VertexBuffers.push_back((float*)vertexBuffer);
+	g_FullScreenTriVertexBuffer = (float*)vertexBuffer;
 
 	float* currentBufferPos = (float*)vertexBuffer;
 	for (i32 i = 0; i < vertexCount; ++i)
@@ -537,9 +626,9 @@ void GenerateFullScreenTri()
 	DescribeShaderVertexAttributes();
 }
 
-void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, GLuint& VBO)
+void GenerateCubeVertexBuffer(float size, GLuint& VAO, GLuint& VBO)
 {
-	i32 vertexCount = (i32)data.size();
+	constexpr i32 vertexCount = 6 * 6; // two tris per face
 
 	std::vector<glm::vec3> positions;
 	positions.reserve(vertexCount);
@@ -547,17 +636,61 @@ void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, G
 	std::vector<glm::vec4> colours;
 	colours.reserve(vertexCount);
 
-	float yScale = 100.0f;
-	float zScale = 100.0f;
+	glm::vec4 colour(0.5f, 0.5f, 0.5f, 1.0f);
 
-	float currentZ = 0.0f;
+	// Front
+	positions.emplace_back(0.0f, g_DataPointSize, 0.0f);
+	positions.emplace_back(0.0f, 0.0f, 0.0f);
+	positions.emplace_back(g_DataPointSize, 0.0f, 0.0f);
+	positions.emplace_back(0.0f, g_DataPointSize, 0.0f);
+	positions.emplace_back(g_DataPointSize, 0.0f, 0.0f);
+	positions.emplace_back(g_DataPointSize, g_DataPointSize, 0.0f);
+
+	// Top
+	positions.emplace_back(0.0f, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(0.0f, g_DataPointSize, 0.0f);
+	positions.emplace_back(g_DataPointSize, g_DataPointSize, 0.0f);
+	positions.emplace_back(0.0f, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(g_DataPointSize, g_DataPointSize, 0.0f);
+	positions.emplace_back(g_DataPointSize, g_DataPointSize, g_DataPointSize);
+
+	// Back
+	positions.emplace_back(0.0f, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(g_DataPointSize, 0.0f, g_DataPointSize);
+	positions.emplace_back(0.0f, 0.0f, g_DataPointSize);
+	positions.emplace_back(0.0f, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(0.0f, 0.0f, g_DataPointSize);
+	positions.emplace_back(0.0f, g_DataPointSize, g_DataPointSize);
+
+	// Bottom
+	positions.emplace_back(g_DataPointSize, 0.0f, g_DataPointSize);
+	positions.emplace_back(0.0f, 0.0f, g_DataPointSize);
+	positions.emplace_back(0.0f, 0.0f, 0.0f);
+	positions.emplace_back(0.0f, 0.0f, g_DataPointSize);
+	positions.emplace_back(g_DataPointSize, 0.0f, g_DataPointSize);
+	positions.emplace_back(g_DataPointSize, 0.0f, 0.0f);
+
+	// Right
+	positions.emplace_back(g_DataPointSize, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(g_DataPointSize, g_DataPointSize, 0.0f);
+	positions.emplace_back(g_DataPointSize, 0.0f, 0.0f);
+	positions.emplace_back(g_DataPointSize, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(g_DataPointSize, 0.0f, 0.0f);
+	positions.emplace_back(g_DataPointSize, 0.0f, g_DataPointSize);
+
+	// Left
+	positions.emplace_back(0.0f, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(0.0f, 0.0f, 0.0f);
+	positions.emplace_back(0.0f, g_DataPointSize, 0.0f);
+	positions.emplace_back(0.0f, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(0.0f, 0.0f, g_DataPointSize);
+	positions.emplace_back(0.0f, 0.0f, 0.0f);
+
+	assert((i32)positions.size() == vertexCount);
+
 	for (i32 i = 0; i < vertexCount; ++i)
 	{
-		float percent = (float)i / vertexCount;
-		positions.emplace_back(0.0f, data[i] * yScale, currentZ);
-		colours.emplace_back(percent, 1.0f - percent, 0.5f, 1.0f);
-
-		currentZ += zScale * (1.0f / vertexCount);
+		colours.emplace_back(colour);
 	}
 
 	i32 vertexStride = sizeof(glm::vec3) + sizeof(glm::vec4);
@@ -569,7 +702,58 @@ void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, G
 		return;
 	}
 
-	g_VertexBuffers.push_back((float*)vertexBuffer);
+	g_DataPointVertexBuffers.push_back((float*)vertexBuffer);
+
+	float* currentBufferPos = (float*)vertexBuffer;
+	for (i32 i = 0; i < vertexCount; ++i)
+	{
+		memcpy(currentBufferPos, &positions[i].x, sizeof(glm::vec3));
+		currentBufferPos += 3;
+
+		memcpy(currentBufferPos, &colours[i].x, sizeof(glm::vec4));
+		currentBufferPos += 4;
+	}
+
+	glGenVertexArrays(1, &VAO);
+	glBindVertexArray(VAO);
+
+	glGenBuffers(1, &VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GL_STATIC_DRAW);
+
+	DescribeShaderVertexAttributes();
+}
+
+void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, GLuint& VBO)
+{
+	i32 vertexCount = (i32)data.size();
+
+	std::vector<glm::vec3> positions;
+	positions.reserve(vertexCount);
+
+	std::vector<glm::vec4> colours;
+	colours.reserve(vertexCount);
+
+	float currentZ = 0.0f;
+	for (i32 i = 0; i < vertexCount; ++i)
+	{
+		float percent = (float)i / vertexCount;
+		positions.emplace_back(0.0f, data[i] * g_yScale, currentZ);
+		colours.emplace_back(percent, 1.0f - percent, 0.5f, 1.0f);
+
+		currentZ += g_zScale * (1.0f / vertexCount);
+	}
+
+	i32 vertexStride = sizeof(glm::vec3) + sizeof(glm::vec4);
+	i32 vertexBufferSize = vertexCount * vertexStride;
+	void* vertexBuffer = malloc(vertexBufferSize);
+	if (!vertexBuffer)
+	{
+		printf("Failed to allocate memory for vertex buffer!\n");
+		return;
+	}
+
+	g_DataPlotVertexBuffers.push_back((float*)vertexBuffer);
 
 	float* currentBufferPos = (float*)vertexBuffer;
 	for (i32 i = 0; i < vertexCount; ++i)
