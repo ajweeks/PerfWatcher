@@ -19,10 +19,11 @@ float g_DT = 0.0f;
 bool g_LMBDown = false;
 glm::vec2i g_CursorPos;
 
-float g_DataPointSize = 0.5f;
+float g_DataPointSize = 1.0f;
 
 float g_xScale = 100.0f;
 float g_yScale = 100.0f;
+EaseValue<float> g_yScaleMult(EaseType::CUBIC_IN_OUT, 0.0f, 1.0f, 2.0f);
 float g_zScale = 100.0f;
 
 GLuint g_MainProgram;
@@ -72,10 +73,20 @@ struct OrbitCam
 		nearPlane = 0.1f;
 		farPlane = 1000.0f;
 
-		distFromCenter = 100.0f;
-
 		center = glm::vec3(0.0f);
-		offset = glm::vec3(100.0f, 0.0f, 0.0f);
+		offset = glm::vec3(100.0f, 100.0f, 100.0f);
+		offset = glm::normalize(offset) * distFromCenter;
+
+		offsetVel = glm::vec2(0.0f, 0.0f);
+
+		CalculateBasis();
+	}
+
+	void Tick()
+	{
+		offsetVel *= (1.0f - glm::clamp(g_DT * 20.0f, 0.0f, 0.99f));
+		offset += right * offsetVel.x + up * offsetVel.y;
+		//printf("offset vel: %.1f, %.1f\n", offsetVel.x, offsetVel.y);
 
 		CalculateBasis();
 	}
@@ -84,7 +95,10 @@ struct OrbitCam
 	{
 		aspectRatio = g_WindowSize.x / (float)g_WindowSize.y;
 
-		glm::mat4 projection = glm::perspective(FOV, aspectRatio, nearPlane, farPlane);
+		float orthoSize = glm::length(offset);
+		glm::mat4 projection = bPerspective ?
+			glm::perspective(FOV, aspectRatio, nearPlane, farPlane) :
+			glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
 		glm::mat4 view = glm::lookAt(offset, center, glm::vec3(0.0f, 1.0f, 0.0f));
 		glm::mat4 viewProj = projection * view;
 
@@ -95,6 +109,8 @@ struct OrbitCam
 	{
 		offset += right * horizontal + up * vertical;
 		offset = glm::normalize(offset) * distFromCenter;
+		glm::vec2 offsetXY(glm::dot(offset, right), glm::dot(offset, up));
+		offsetVel += offsetXY;// Lerp(offsetVel, offsetXY, 0.1f);
 
 		CalculateBasis();
 	}
@@ -108,6 +124,7 @@ struct OrbitCam
 	void CalculateBasis()
 	{
 		glm::mat4 view = glm::lookAt(offset, center, glm::vec3(0.0f, 1.0f, 0.0f));
+		view = glm::transpose(view);
 		right = view[0];
 		up = view[1];
 		forward = view[2];
@@ -115,14 +132,22 @@ struct OrbitCam
 		printf("Basis: (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f)\n", right.x, right.y, right.z, up.x, up.y, up.z, forward.x, forward.y, forward.z);
 	}
 
+	void SetPerspective(bool bNewPersective)
+	{
+		bPerspective = bNewPersective;
+	}
+
 	float FOV;
 	float aspectRatio;
 	float nearPlane;
 	float farPlane;
-	float distFromCenter;
+	float distFromCenter = 200.0f;
+
+	bool bPerspective;
 
 	glm::vec3 center;
 	glm::vec3 offset;
+	glm::vec2 offsetVel;
 
 	glm::vec3 right;
 	glm::vec3 up;
@@ -248,7 +273,7 @@ public:
 			g_DataVAOs.push_back(VAO);
 			g_DataVBOs.push_back(VBO);
 
-			glm::vec3 plotTranslation = glm::vec3(-g_xScale / 2.0f + g_xScale * (float)i / (plotCount - 1), 0.0f, 0.0f);
+			glm::vec3 plotTranslation = glm::vec3(g_xScale * (float)i / (plotCount - 1) - 0.5f, 0.0f, 0.0f);
 			glm::mat4 model = glm::translate(glm::mat4(1.0f), plotTranslation);
 			g_DataPlotModelMats.push_back(model);
 
@@ -259,7 +284,7 @@ public:
 
 				GenerateCubeVertexBuffer(g_DataPointSize, pointVAO, pointVBO);
 
-				glm::vec3 dataPointTranslation = plotTranslation + glm::vec3(0.0f, row[j] * g_yScale, percent * g_zScale);
+				glm::vec3 dataPointTranslation =  glm::vec3(0.0f, row[j], g_zScale * percent);
 				glm::mat4 dataPointModel = glm::translate(glm::mat4(1.0f), dataPointTranslation);
 				g_DataPointModelMats.push_back(dataPointModel);
 
@@ -275,7 +300,7 @@ public:
 	void Loop()
 	{
 		float timePrev = (float)glfwGetTime();
-		while (!glfwWindowShouldClose(g_MainWindow))
+		while (bRunning && !glfwWindowShouldClose(g_MainWindow))
 		{
 			float timeNow = (float)glfwGetTime();
 			g_DT = timeNow - timePrev;
@@ -283,28 +308,22 @@ public:
 
 			glfwPollEvents();
 
+			if (ImGui::IsKeyDown(GLFW_KEY_T))
+			{
+				g_yScaleMult.Reset();
+			}
+
+			g_OrbitCam.Tick();
+			g_yScaleMult.Tick();
+
+			printf("%.2f\n", g_yScaleMult.current);
+
 			// Start the ImGui frame
 			ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
 
-			{
-				static float f = 0.0f;
-				static int counter = 0;
-				ImGui::Text("Hello, world!");                           // Display some text (you can use a format string too)
-				ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-																		//ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
-																		//ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our windows open/close state
-																		//ImGui::Checkbox("Another Window", &show_another_window);
-
-				if (ImGui::Button("Button"))                            // Buttons return true when clicked (NB: most widgets return true when edited/activated)
-					counter++;
-				ImGui::SameLine();
-				ImGui::Text("counter = %d", counter);
-
-				ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-			}
+			DoImGuiItems();
 
 			glDepthMask(GL_TRUE);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -316,28 +335,40 @@ public:
 			glDepthMask(GL_TRUE);
 			glDepthFunc(GL_LEQUAL);
 
+			glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, g_yScale * g_yScaleMult.current, 1.0f));
+
+			GLint viewProjLocation = glGetUniformLocation(g_MainProgram, "viewProj");
+			GLint modelLocation = glGetUniformLocation(g_MainProgram, "model");
+
 			i32 plotCount = (i32)g_DataVAOs.size();
 			for (i32 i = 0; i < plotCount; ++i)
 			{
 				glBindVertexArray(g_DataVAOs[i]);
 				glBindBuffer(GL_ARRAY_BUFFER, g_DataVBOs[i]);
 
-				GLint viewProjLocation = glGetUniformLocation(g_MainProgram, "viewProj");
-				GLint modelLocation = glGetUniformLocation(g_MainProgram, "model");
 				glUniformMatrix4fv(viewProjLocation, 1, GL_FALSE, &viewProj[0][0]);
-				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &g_DataPlotModelMats[i][0][0]);
+				glm::mat4 plotModel = g_DataPlotModelMats[i] * scaleMat;
+				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &plotModel[0][0]);
 
 				glDrawArrays(GL_LINE_STRIP, 0, dataRows[i].size());
 
-				for (const glm::mat4& dataPointModelMat : g_DataPointModelMats)
+				i32 dataElements = (i32)dataRows[i].size();
+				for (i32 j = 0; j < dataElements; ++j)
 				{
 					glBindVertexArray(g_DataPointVAOs[i]);
 					glBindBuffer(GL_ARRAY_BUFFER, g_DataPointVBOs[i]);
 
-					GLint modelLocation = glGetUniformLocation(g_MainProgram, "model");
-					glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &dataPointModelMat[0][0]);
 
-					glDrawArrays(GL_TRIANGLES, 0, dataRows[i].size());
+					glm::vec3 plotTranslation = glm::vec3(
+						g_xScale * (float)i / (plotCount - 1) - 0.5f - 0.5f,
+						g_yScale * g_yScaleMult.current * dataRows[i][j] - 0.5f,
+						g_zScale * (float)j / dataElements - 0.5f);
+					glm::mat4 dataPointModel = glm::translate(glm::mat4(1.0f), plotTranslation);
+					dataPointModel = glm::rotate(dataPointModel, glm::radians(45.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+					dataPointModel = glm::rotate(dataPointModel, glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+					glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &dataPointModel[0][0]);
+
+					glDrawArrays(GL_TRIANGLES, 0, 36);
 				}
 			}
 
@@ -351,6 +382,46 @@ public:
 
 
 			glfwSwapBuffers(g_MainWindow);
+		}
+	}
+
+	void DoImGuiItems()
+	{
+		if (ImGui::BeginMainMenuBar())
+		{
+			if (ImGui::BeginMenu("File"))
+			{
+				if (ImGui::Selectable("Import"))
+				{
+					printf("import\n");
+				}
+
+				if (ImGui::Selectable("Quit"))
+				{
+					bRunning = false;
+				}
+
+				ImGui::EndMenu();
+			}
+
+			ImGui::EndMainMenuBar();
+		}
+
+		static bool bShowCamControlWindow = true;
+		if (ImGui::Begin("##camera-control-window", &bShowCamControlWindow, ImVec2(400, 150), -1.0f,
+			ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar))
+		{
+			if (ImGui::Button("Orthographic"))
+			{
+				g_OrbitCam.SetPerspective(false);
+			}
+
+			if (ImGui::Button("Perspective"))
+			{
+				g_OrbitCam.SetPerspective(true);
+			}
+
+			ImGui::End();
 		}
 	}
 
@@ -386,7 +457,7 @@ public:
 		if (g_LMBDown)
 		{
 			float scale = g_DT * g_OrbitCam.orbitSpeed;
-			g_OrbitCam.Orbit(dMousePos.x * scale, dMousePos.y * scale);
+			g_OrbitCam.Orbit(-dMousePos.x * scale, dMousePos.y * scale);
 		}
 	}
 
@@ -397,6 +468,7 @@ public:
 
 private:
 	std::vector<std::vector<float>> dataRows;
+	bool bRunning = true;
 
 };
 
@@ -636,7 +708,7 @@ void GenerateCubeVertexBuffer(float size, GLuint& VAO, GLuint& VBO)
 	std::vector<glm::vec4> colours;
 	colours.reserve(vertexCount);
 
-	glm::vec4 colour(0.5f, 0.5f, 0.5f, 1.0f);
+	glm::vec4 colour(0.1f, 0.1f, 0.1f, 1.0f);
 
 	// Front
 	positions.emplace_back(0.0f, g_DataPointSize, 0.0f);
@@ -738,7 +810,7 @@ void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, G
 	for (i32 i = 0; i < vertexCount; ++i)
 	{
 		float percent = (float)i / vertexCount;
-		positions.emplace_back(0.0f, data[i] * g_yScale, currentZ);
+		positions.emplace_back(0.0f, data[i], currentZ);
 		colours.emplace_back(percent, 1.0f - percent, 0.5f, 1.0f);
 
 		currentZ += g_zScale * (1.0f / vertexCount);

@@ -19,4 +19,109 @@ bool LoadGLShaders(u32 program, const char* vertShaderPath, const char* fragShad
 
 bool LinkProgram(u32 program);
 
+template<class T>
+T Lerp(T a, T b, float t)
+{
+	return (a * (1.0f - t)) + (t * b);
+}
+
+enum class EaseType
+{
+	CUBIC_IN_OUT,
+	QUADRATIC_IN_OUT,
+	ELASTIC_OUT
+};
+
+template<class T>
+T Ease_CubicInOut(T a, T c, float t, float duration)
+{
+	t /= duration / 2.0f;
+	if (t < 1.0f)
+	{
+		return c / 2.0f * t * t * t + a;
+	}
+	t -= 2.0f;
+	return c / 2.0f * (t * t * t + 2.0f) + a;
+}
+
+template<class T>
+T Ease_QuadInOut(T a, T c, float t, float duration)
+{
+	t /= duration / 2.0f;
+	if (t < 1.0f)
+	{
+		return c / 2.0f * t * t + a;
+	}
+	t--;
+	return -c / 2.0f * (t * (t - 2.0f) - 1.0f) + a;
+}
+
+template<class T>
+T Ease_ElasticOut(T a, T c, float t, float duration)
+{
+	if (t == 0)
+	{
+		return a;
+	}
+	if ((t /= duration) == 1.0f)
+	{
+		return a + c;
+	}
+
+	float p = duration * 0.3f;
+	float s = p / 4.0f;
+	return (c * pow(2.0f, -10.0f * t) *
+		sin((t * duration - s) * (2.0f * glm::pi<float>()) / p) + c + a);
+}
+
+template<class T>
+struct EaseValue
+{
+	EaseValue(EaseType type, T start, T end, float duration) :
+		type(type), start(start), current(start), change(end - start), duration(duration), elapsed(0.0f)
+	{
+	}
+
+	void Tick()
+	{
+		elapsed += g_DT;
+
+		if (elapsed < duration)
+		{
+			switch (type)
+			{
+			case EaseType::CUBIC_IN_OUT:
+			{
+				current = Ease_CubicInOut(start, change, elapsed, duration);
+			} break;
+			case EaseType::QUADRATIC_IN_OUT:
+			{
+				current = Ease_QuadInOut(start, change, elapsed, duration);
+			} break;
+			case EaseType::ELASTIC_OUT:
+			{
+				current = Ease_ElasticOut(start, change, elapsed, duration);
+			} break;
+			}
+		}
+		else
+		{
+			current = start + change;
+		}
+	}
+
+	void Reset()
+	{
+		elapsed = 0.0f;
+		current = start;
+	}
+
+	EaseType type;
+	T start;
+	T change;
+	T current;
+	float duration;
+	float elapsed;
+};
+
 #define ARRAY_LENGTH(arr) ((int)(sizeof(arr)/sizeof(*arr)))
