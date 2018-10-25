@@ -31,8 +31,8 @@ float* g_FullScreenTriVertexBuffer;
 GLuint g_FullScreenTriVAO;
 GLuint g_FullScreenTriVBO;
 
-std::vector<glm::mat4> g_DataPlotModelMats;
 std::vector<float*> g_DataPlotVertexBuffers;
+std::vector<glm::mat4> g_DataPlotModelMats;
 std::vector<GLuint> g_DataVAOs;
 std::vector<GLuint> g_DataVBOs;
 
@@ -40,6 +40,12 @@ std::vector<float*> g_DataPointVertexBuffers;
 std::vector<glm::mat4> g_DataPointModelMats;
 std::vector<GLuint> g_DataPointVAOs;
 std::vector<GLuint> g_DataPointVBOs;
+
+std::vector<float*> g_AxisVertexBuffers;
+std::vector<i32> g_AxisVertexBufferCounts;
+std::vector<glm::mat4> g_AxisModelMats;
+std::vector<GLuint> g_AxisVAOs;
+std::vector<GLuint> g_AxisVBOs;
 
 extern bool g_MouseJustPressed[5];
 
@@ -60,6 +66,7 @@ bool ParseCSV(const char* filePath, std::vector<std::string>& outHeaders, std::v
 void GenerateFullScreenTri();
 void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, GLuint& VBO);
 void GenerateCubeVertexBuffer(float size, GLuint& VAO, GLuint& VBO);
+void GenerateAxesVertexBuffer(i32 verticalCount, i32 horizCount, GLuint& VAO, GLuint& VBO);
 void DescribeShaderVertexAttributes();
 
 void DrawFullScreenQuad();
@@ -293,6 +300,11 @@ public:
 			}
 		}
 
+		GLuint axesVAO, axesVBO;
+		GenerateAxesVertexBuffer(10, 10, axesVAO, axesVBO);
+		g_AxisVAOs.push_back(axesVAO);
+		g_AxisVBOs.push_back(axesVBO);
+
 
 		glEnable(GL_DEPTH_TEST);
 	}
@@ -372,6 +384,20 @@ public:
 				}
 			}
 
+			for (i32 i = 0; i < (i32)g_AxisVAOs.size(); ++i)
+			{
+				glBindVertexArray(g_AxisVAOs[i]);
+				glBindBuffer(GL_ARRAY_BUFFER, g_AxisVBOs[i]);
+
+				glm::vec3 scaleVec(g_xScale, 0.0f, g_zScale);
+				glm::mat4 axesModel = glm::translate(glm::mat4(1.0f), scaleVec / 2.0f);
+				scaleVec.y = 100.0f;
+				axesModel = glm::scale(axesModel, scaleVec);
+				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &axesModel[0][0]);
+
+				glDrawArrays(GL_LINE_STRIP, 0, g_AxisVertexBufferCounts[i]);
+			}
+
 			float FPS = 1.0f / g_DT;
 			std::string windowTitle = "PerfWatcher v0.0.1 - " + FloatToString(g_DT, 2) + "ms / " + FloatToString(FPS, 0) + " fps";
 			glfwSetWindowTitle(g_MainWindow, windowTitle.c_str());
@@ -408,7 +434,8 @@ public:
 		}
 
 		static bool bShowCamControlWindow = true;
-		if (ImGui::Begin("##camera-control-window", &bShowCamControlWindow, ImVec2(400, 150), -1.0f,
+		ImGui::SetNextWindowPos(ImVec2(1158, 22), ImGuiCond_FirstUseEver);
+		if (ImGui::Begin("##camera-control-window", &bShowCamControlWindow, ImVec2(120, 60), -1.0f,
 			ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar))
 		{
 			if (ImGui::Button("Orthographic"))
@@ -440,6 +467,11 @@ public:
 			free(buffer);
 		}
 
+		for (auto buffer : g_AxisVertexBuffers)
+		{
+			free(buffer);
+		}
+
 		for (auto buffer : g_DataPlotVertexBuffers)
 		{
 			free(buffer);
@@ -453,6 +485,11 @@ public:
 		glm::vec2i newPos = glm::vec2i((i32)x, (i32)y);
 		glm::vec2i dMousePos = newPos - g_CursorPos;
 		g_CursorPos = newPos;
+
+		if (ImGui::GetIO().WantCaptureMouse)
+		{
+			dMousePos = glm::vec2i(0);
+		}
 
 		if (g_LMBDown)
 		{
@@ -775,6 +812,107 @@ void GenerateCubeVertexBuffer(float size, GLuint& VAO, GLuint& VBO)
 	}
 
 	g_DataPointVertexBuffers.push_back((float*)vertexBuffer);
+
+	float* currentBufferPos = (float*)vertexBuffer;
+	for (i32 i = 0; i < vertexCount; ++i)
+	{
+		memcpy(currentBufferPos, &positions[i].x, sizeof(glm::vec3));
+		currentBufferPos += 3;
+
+		memcpy(currentBufferPos, &colours[i].x, sizeof(glm::vec4));
+		currentBufferPos += 4;
+	}
+
+	glGenVertexArrays(1, &VAO);
+	glBindVertexArray(VAO);
+
+	glGenBuffers(1, &VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertexBufferSize, vertexBuffer, GL_STATIC_DRAW);
+
+	DescribeShaderVertexAttributes();
+}
+
+void GenerateAxesVertexBuffer(i32 verticalCount, i32 horizCount, GLuint& VAO, GLuint& VBO)
+{
+	i32 verticalLineVertCount = (8 * verticalCount);
+	i32 horizLineVertCount = (8 * horizCount);
+	i32 vertexCount = verticalLineVertCount;// +horizLineVertCount;
+
+	std::vector<glm::vec3> positions;
+	positions.reserve(vertexCount);
+
+	std::vector<glm::vec4> colours;
+	colours.reserve(vertexCount);
+
+	float currentZ = 0.0f;
+	for (i32 i = 0; i < verticalCount; ++i)
+	{
+		float percent = (float)i / (float)(verticalCount - 1);
+		positions.emplace_back(-1.0f, percent, -1.0f);
+		positions.emplace_back(-1.0f, percent, 1.0f);
+
+		positions.emplace_back(-1.0f, percent, -1.0f);
+		positions.emplace_back(1.0f, percent, -1.0f);
+
+		positions.emplace_back(1.0f, percent, 1.0f);
+		positions.emplace_back(1.0f, percent, -1.0f);
+
+		positions.emplace_back(1.0f, percent, 1.0f);
+		positions.emplace_back(-1.0f, percent, 1.0f);
+
+		colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+		colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+
+		colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+		colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+
+		colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+		colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+
+		colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+		colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+	}
+
+	//for (i32 i = 0; i < horizCount; ++i)
+	//{
+	//	float percent = (float)i / (float)(horizCount - 1);
+	//	positions.emplace_back(-1.0f, percent, -1.0f);
+	//	positions.emplace_back(-1.0f, percent, 1.0f);
+
+	//	positions.emplace_back(-1.0f, percent, -1.0f);
+	//	positions.emplace_back(1.0f, percent, -1.0f);
+
+	//	positions.emplace_back(1.0f, percent, 1.0f);
+	//	positions.emplace_back(1.0f, percent, -1.0f);
+
+	//	positions.emplace_back(1.0f, percent, 1.0f);
+	//	positions.emplace_back(-1.0f, percent, 1.0f);
+
+	//	colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+	//	colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+
+	//	colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+	//	colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+
+	//	colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+	//	colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+
+	//	colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+	//	colours.emplace_back(0.9f, 0.9f, 0.9f, 1.0f);
+	//}
+
+	i32 vertexStride = sizeof(glm::vec3) + sizeof(glm::vec4);
+	i32 vertexBufferSize = vertexCount * vertexStride;
+	void* vertexBuffer = malloc(vertexBufferSize);
+	if (!vertexBuffer)
+	{
+		printf("Failed to allocate memory for vertex buffer!\n");
+		return;
+	}
+
+	g_AxisVertexBuffers.push_back((float*)vertexBuffer);
+	g_AxisVertexBufferCounts.push_back(vertexCount);
 
 	float* currentBufferPos = (float*)vertexBuffer;
 	for (i32 i = 0; i < vertexCount; ++i)
