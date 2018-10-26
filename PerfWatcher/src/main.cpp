@@ -41,13 +41,22 @@ std::vector<glm::mat4> g_DataPointModelMats;
 std::vector<GLuint> g_DataPointVAOs;
 std::vector<GLuint> g_DataPointVBOs;
 
+i32 g_HAxisCount = 10;
+i32 g_VAxisCount = 10;
+
 std::vector<float*> g_AxisVertexBuffers;
 std::vector<i32> g_AxisVertexBufferCounts;
 std::vector<glm::mat4> g_AxisModelMats;
 std::vector<GLuint> g_AxisVAOs;
 std::vector<GLuint> g_AxisVBOs;
 
+i32 g_ColorMultiplierLoc = -1;
+
 extern bool g_MouseJustPressed[5];
+
+static const glm::vec3 VEC_RIGHT(1.0f, 0.0f, 0.0f);
+static const glm::vec3 VEC_UP(0.0f, 1.0f, 0.0f);
+static const glm::vec3 VEC_FORWARD(0.0f, 0.0f, 1.0f);
 
 
 void GLFWErrorCallback(i32 error, const char* description);
@@ -80,7 +89,7 @@ struct OrbitCam
 		nearPlane = 0.1f;
 		farPlane = 1000.0f;
 
-		center = glm::vec3(0.0f);
+		center = glm::vec3(g_xScale/2.0f, 0.0f, g_zScale/2.0f);
 		offset = glm::vec3(100.0f, 100.0f, 100.0f);
 		offset = glm::normalize(offset) * distFromCenter;
 
@@ -106,7 +115,7 @@ struct OrbitCam
 		glm::mat4 projection = bPerspective ?
 			glm::perspective(FOV, aspectRatio, nearPlane, farPlane) :
 			glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
-		glm::mat4 view = glm::lookAt(offset, center, glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 view = glm::lookAt(offset + center, center, VEC_UP);
 		glm::mat4 viewProj = projection * view;
 
 		return viewProj;
@@ -130,13 +139,13 @@ struct OrbitCam
 
 	void CalculateBasis()
 	{
-		glm::mat4 view = glm::lookAt(offset, center, glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 view = glm::lookAt(offset + center, center, VEC_UP);
 		view = glm::transpose(view);
 		right = view[0];
 		up = view[1];
 		forward = view[2];
 
-		printf("Basis: (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f)\n", right.x, right.y, right.z, up.x, up.y, up.z, forward.x, forward.y, forward.z);
+		//printf("Basis: (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f)\n", right.x, right.y, right.z, up.x, up.y, up.z, forward.x, forward.y, forward.z);
 	}
 
 	void SetPerspective(bool bNewPersective)
@@ -266,6 +275,9 @@ public:
 
 		glUseProgram(g_MainProgram);
 
+		g_ColorMultiplierLoc = glGetUniformLocation(g_MainProgram, "ColourMultiplier");
+
+
 		GenerateFullScreenTri();
 
 		i32 plotCount = (i32)dataRows.size();
@@ -301,7 +313,7 @@ public:
 		}
 
 		GLuint axesVAO, axesVBO;
-		GenerateAxesVertexBuffer(10, 10, axesVAO, axesVBO);
+		GenerateAxesVertexBuffer(g_HAxisCount, g_VAxisCount, axesVAO, axesVBO);
 		g_AxisVAOs.push_back(axesVAO);
 		g_AxisVBOs.push_back(axesVBO);
 
@@ -328,8 +340,6 @@ public:
 			g_OrbitCam.Tick();
 			g_yScaleMult.Tick();
 
-			printf("%.2f\n", g_yScaleMult.current);
-
 			// Start the ImGui frame
 			ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplGlfw_NewFrame();
@@ -340,12 +350,19 @@ public:
 			glDepthMask(GL_TRUE);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+			glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+
 			DrawFullScreenQuad();
 
 			glm::mat4 viewProj = g_OrbitCam.GetViewProj();
 
 			glDepthMask(GL_TRUE);
 			glDepthFunc(GL_LEQUAL);
+
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+			glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 0.5f);
 
 			glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, g_yScale * g_yScaleMult.current, 1.0f));
 
@@ -384,6 +401,14 @@ public:
 				}
 			}
 
+			const glm::vec3 camFor = glm::normalize(g_OrbitCam.offset - g_OrbitCam.center);
+			float FoF = glm::dot(camFor, VEC_FORWARD);
+			float FoR = glm::dot(camFor, VEC_RIGHT);
+			const float dotThreshold = 0.95f;
+
+			float fDirectionality = (glm::max(FoF, 0.0f) - dotThreshold) / (1.0f - dotThreshold);
+			printf("%.2f, %.2f, %.2f\n", FoF, FoR, fDirectionality);
+
 			for (i32 i = 0; i < (i32)g_AxisVAOs.size(); ++i)
 			{
 				glBindVertexArray(g_AxisVAOs[i]);
@@ -395,7 +420,30 @@ public:
 				axesModel = glm::scale(axesModel, scaleVec);
 				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &axesModel[0][0]);
 
-				glDrawArrays(GL_LINE_STRIP, 0, g_AxisVertexBufferCounts[i]);
+				for (i32 j = 0; j < g_VAxisCount; ++j)
+				{
+					if (FoF > dotThreshold || FoR > 0.0f)
+					{
+						//float a = Lerp(1.0f, 0.0f, fDirectionality*(1.0/(1.0-dotThreshold)));
+						//glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, a);
+						glDrawArrays(GL_LINES, j * 8, 2);
+						//glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 0.5f);
+					}
+
+					if (FoR > dotThreshold || FoF > 0.0f)
+					{
+						glDrawArrays(GL_LINES, j * 8 + 2, 2);
+					}
+					if (FoF > dotThreshold || FoR < 0.0f)
+					{
+						glDrawArrays(GL_LINES, j * 8 + 4, 2);
+					}
+
+					if (FoR > dotThreshold || FoF < 0.0f)
+					{
+						glDrawArrays(GL_LINES, j * 8 + 6, 2);
+					}
+				}
 			}
 
 			float FPS = 1.0f / g_DT;
