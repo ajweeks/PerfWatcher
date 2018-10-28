@@ -370,10 +370,12 @@ public:
 				}
 			}
 
-			const glm::vec3 camFor = glm::normalize(g_OrbitCam.offset - g_OrbitCam.center);
+			glm::vec3 camFor = glm::normalize(g_OrbitCam.offset - g_OrbitCam.center);
+			camFor.y = 0.0f;
+			camFor = glm::normalize(camFor);
 			float FoF = glm::dot(camFor, VEC_FORWARD);
 			float FoR = glm::dot(camFor, VEC_RIGHT);
-			const float dotThreshold = 0.95f;
+			const float dotThreshold = 0.9f;
 
 			float fDirectionality = (glm::max(FoF, 0.0f) - dotThreshold) / (1.0f - dotThreshold);
 			printf("%.2f, %.2f, %.2f\n", FoF, FoR, fDirectionality);
@@ -384,7 +386,7 @@ public:
 			{
 				windowTitleTimer -= windowUpdateRate;
 				float FPS = 1.0f / g_DT;
-				std::string windowTitle = "PerfWatcher v0.0.1 - " + FloatToString(g_DT, 2) + "ms / " + FloatToString(FPS, 0) + " fps";
+				std::string windowTitle = "PerfWatcher v0.0.2 - " + FloatToString(g_DT, 2) + "ms / " + FloatToString(FPS, 0) + " fps";
 				glfwSetWindowTitle(g_MainWindow, windowTitle.c_str());
 			}
 
@@ -402,25 +404,24 @@ public:
 
 				for (i32 j = 0; j < g_VAxisCount; ++j)
 				{
-					if (FoF > dotThreshold || FoR > 0.0f)
 					{
-						float a = Lerp(1.0f, 0.0f, fDirectionality*(1.0 / (1.0 - dotThreshold)));
+						float a = FoR < 0.0f ?  (glm::abs(FoF) - dotThreshold) / (1.0f - dotThreshold) : 1.0;
 						glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, a);
 						glDrawArrays(GL_LINES, j * 8, 2);
-						glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 0.5f);
 					}
-
-					if (FoR > dotThreshold || FoF > 0.0f)
 					{
+						float a = FoF < 0.0f ?  (glm::abs(FoR) - dotThreshold) / (1.0f - dotThreshold) : 1.0;
+						glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, a);
 						glDrawArrays(GL_LINES, j * 8 + 2, 2);
 					}
-					if (FoF > dotThreshold || FoR < 0.0f)
 					{
+						float a = FoR > 0.0f ?  (glm::abs(FoF) - dotThreshold) / (1.0f - dotThreshold) : 1.0;
+						glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, a);
 						glDrawArrays(GL_LINES, j * 8 + 4, 2);
 					}
-
-					if (FoR > dotThreshold || FoF < 0.0f)
 					{
+						float a = FoF > 0.0f ?  (glm::abs(FoR) - dotThreshold) / (1.0f - dotThreshold) : 1.0;
+						glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, a);
 						glDrawArrays(GL_LINES, j * 8 + 6, 2);
 					}
 				}
