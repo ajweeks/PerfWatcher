@@ -100,7 +100,7 @@ void OrbitCam::Zoom(float amount)
 
 void OrbitCam::CalculateBasis()
 {
-	glm::mat4 view = glm::lookAt(offset, center, glm::vec3(0.0f, 1.0f, 0.0f));
+	glm::mat4 view = glm::lookAt(offset, center, VEC_UP);
 	view = glm::transpose(view);
 	right = view[0];
 	up = view[1];

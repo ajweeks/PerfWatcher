@@ -42,6 +42,8 @@ std::vector<glm::mat4> g_DataPlotModelMats;
 std::vector<GLuint> g_DataVAOs;
 std::vector<GLuint> g_DataVBOs;
 
+glm::vec4 g_HoveredDataPointColorMult(4.0f, 4.0f, 4.0f, 1.0f);
+
 struct DataPointRenderData
 {
 	DataPointRenderData(const glm::mat4& model, const glm::vec4& colour) :
@@ -67,7 +69,6 @@ std::vector<GLuint> g_AxisVAOs;
 std::vector<GLuint> g_AxisVBOs;
 
 i32 g_ColorMultiplierLoc = -1;
-
 
 void GLFWErrorCallback(i32 error, const char* description);
 void GLFWWindowSizeCallback(GLFWwindow* window, int width, int height);
@@ -253,7 +254,6 @@ public:
 		g_AxisVAOs.push_back(axesVAO);
 		g_AxisVBOs.push_back(axesVBO);
 
-
 		glEnable(GL_DEPTH_TEST);
 	}
 
@@ -267,22 +267,23 @@ public:
 		g_OrbitCam.Tick();
 		g_yScaleMult.Tick();
 
-		glm::vec3 rayO = g_OrbitCam.GetPos();
-		glm::vec3 rayDir;
-		GenerateDirectionRayFromScreenPos(g_CursorPos.x, g_CursorPos.y, rayO, rayDir);
-		for (auto& dataPointRenderData : g_DataPointRenderData)
 		{
-			glm::vec4 pos(0.0f, 0.0f, 0.0f, 1.0f);
-			pos = dataPointRenderData.model * pos;
+			glm::vec3 rayO(0.0f);
+			glm::vec3 rayDir;
+			GenerateDirectionRayFromScreenPos(g_CursorPos.x, g_CursorPos.y, rayO, rayDir);
+			for (DataPointRenderData& dataPointRenderData : g_DataPointRenderData)
+			{
+				glm::vec4 pos(0.0f, 0.0f, 0.0f, 1.0f);
+				pos = dataPointRenderData.model * pos;
 
-			if (RaySphereIntersection(rayO, rayDir, (glm::vec3)pos, g_DataPointSize))
-			{
-				printf("intersect!\n");
-				dataPointRenderData.colour= glm::vec4(10.0f);
-			}
-			else
-			{
-				dataPointRenderData.colour = glm::vec4(1.0f);
+				if (RaySphereIntersection(rayO, rayDir, (glm::vec3)pos, g_DataPointSize))
+				{
+					dataPointRenderData.colour = g_HoveredDataPointColorMult;
+				}
+				else
+				{
+					dataPointRenderData.colour = VEC4_UNIT;
+				}
 			}
 		}
 	}
@@ -303,6 +304,17 @@ public:
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
 
+			static const float windowUpdateRate = 0.2f;
+			static float windowTitleTimer = windowUpdateRate;
+			windowTitleTimer += g_DT;
+			if (windowTitleTimer >= windowUpdateRate)
+			{
+				windowTitleTimer -= windowUpdateRate;
+				float FPS = 1.0f / g_DT;
+				std::string windowTitle = "PerfWatcher v0.0.2 - " + FloatToString(g_DT, 2) + "ms / " + FloatToString(FPS, 0) + " fps";
+				glfwSetWindowTitle(g_MainWindow, windowTitle.c_str());
+			}
+
 			Tick();
 
 			DoImGuiItems();
@@ -322,8 +334,6 @@ public:
 			glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-			glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 0.5f);
-
 			glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, g_yScale * g_yScaleMult.current, 1.0f));
 
 			GLint viewProjLocation = glGetUniformLocation(g_MainProgram, "viewProj");
@@ -339,31 +349,34 @@ public:
 				glm::mat4 plotModel = g_DataPlotModelMats[i] * scaleMat;
 				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &plotModel[0][0]);
 
+				glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+
 				glDrawArrays(GL_LINE_STRIP, 0, dataCols[i].size());
 
 				i32 dataElements = (i32)dataCols[i].size();
 				for (i32 j = 0; j < dataElements; ++j)
 				{
+					i32 idx = i * dataElements + j;
+
 					glBindVertexArray(g_DataPointVAOs[i]);
 					glBindBuffer(GL_ARRAY_BUFFER, g_DataPointVBOs[i]);
 
 					glEnable(GL_CULL_FACE);
 
-					GLint brightnessMultLoc = glGetUniformLocation(g_MainProgram, "ColourMultiplier");
-					glUniform4f(brightnessMultLoc,
-						g_DataPointRenderData[i].colour.x,
-						g_DataPointRenderData[i].colour.y,
-						g_DataPointRenderData[i].colour.z,
-						g_DataPointRenderData[i].colour.w);
+					glUniform4f(g_ColorMultiplierLoc,
+						g_DataPointRenderData[idx].colour.x,
+						g_DataPointRenderData[idx].colour.y,
+						g_DataPointRenderData[idx].colour.z,
+						g_DataPointRenderData[idx].colour.w);
 
 					glm::vec3 plotTranslation = glm::vec3(
 						g_xScale * ((float)i / (plotCount - 1) - 0.5f) - g_DataPointSize / 2.0f,
 						g_yScale * g_yScaleMult.current * dataCols[i][j] - g_DataPointSize / 2.0f,
 						g_zScale * ((float)j / dataElements - 0.5f) - g_DataPointSize / 2.0f);
 					glm::mat4 dataPointModel = glm::translate(glm::mat4(1.0f), plotTranslation);
-					dataPointModel = glm::rotate(dataPointModel, glm::radians(45.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-					dataPointModel = glm::rotate(dataPointModel, glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-					g_DataPointRenderData[i].model = dataPointModel;
+					dataPointModel = glm::rotate(dataPointModel, glm::radians(45.0f), VEC_RIGHT);
+					dataPointModel = glm::rotate(dataPointModel, glm::radians(45.0f), VEC_UP);
+					g_DataPointRenderData[idx].model = dataPointModel;
 					glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &dataPointModel[0][0]);
 
 					glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -378,17 +391,7 @@ public:
 			const float dotThreshold = 0.9f;
 
 			float fDirectionality = (glm::max(FoF, 0.0f) - dotThreshold) / (1.0f - dotThreshold);
-			printf("%.2f, %.2f, %.2f\n", FoF, FoR, fDirectionality);
-			static const float windowUpdateRate = 0.2f;
-			static float windowTitleTimer = windowUpdateRate;
-			windowTitleTimer += g_DT;
-			if (windowTitleTimer >= windowUpdateRate)
-			{
-				windowTitleTimer -= windowUpdateRate;
-				float FPS = 1.0f / g_DT;
-				std::string windowTitle = "PerfWatcher v0.0.2 - " + FloatToString(g_DT, 2) + "ms / " + FloatToString(FPS, 0) + " fps";
-				glfwSetWindowTitle(g_MainWindow, windowTitle.c_str());
-			}
+			//printf("%.2f, %.2f, %.2f\n", FoF, FoR, fDirectionality);
 
 			glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 1.0f);
 
@@ -570,12 +573,19 @@ void GLFWCursorPosCallback(GLFWwindow* window, double x, double y)
 
 void GLFWMouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
-	if (action == GLFW_PRESS && button >= 0 && button < ARRAY_LENGTH(g_MouseJustPressed))
+	if (button >= 0 && button < ARRAY_LENGTH(g_MouseJustPressed))
 	{
-		g_MouseJustPressed[button] = true;
+		if (action == GLFW_PRESS)
+		{
+			g_MouseJustPressed[button] = true;
+		}
+		else if (action == GLFW_RELEASE)
+		{
+			g_MouseJustPressed[button] = false;
+		}
 	}
-
-	if (action == GLFW_PRESS)
+	ImGuiIO& io = ImGui::GetIO();
+	if (action == GLFW_PRESS && !io.WantCaptureMouse)
 	{
 		if (button == GLFW_MOUSE_BUTTON_LEFT)
 		{

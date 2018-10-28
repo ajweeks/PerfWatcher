@@ -232,7 +232,7 @@ void GenerateDirectionRayFromScreenPos(i32 x, i32 y, glm::vec3& rayO, glm::vec3&
 	float pixelCameraY = pixelScreenY * tanFov;
 
 
-	glm::mat4 cameraView = glm::inverse(g_OrbitCam.GetView()) * glm::inverse(g_OrbitCam.GetProj());
+	glm::mat4 cameraView = glm::inverse(g_OrbitCam.GetView());
 
 	rayO = cameraView * glm::vec4(rayO, 1.0f);
 

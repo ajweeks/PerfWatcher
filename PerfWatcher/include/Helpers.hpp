@@ -133,3 +133,8 @@ struct EaseValue
 static const glm::vec3 VEC_RIGHT(1.0f, 0.0f, 0.0f);
 static const glm::vec3 VEC_UP(0.0f, 1.0f, 0.0f);
 static const glm::vec3 VEC_FORWARD(0.0f, 0.0f, 1.0f);
+
+static const glm::vec3 VEC_UNIT(1.0f);
+static const glm::vec3 VEC_ZERO(0.0f);
+static const glm::vec4 VEC4_UNIT(1.0f);
+static const glm::vec4 VEC4_ZERO(0.0f);
