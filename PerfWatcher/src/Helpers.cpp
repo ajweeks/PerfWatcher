@@ -5,6 +5,10 @@
 #include <iomanip> // For setprecision
 
 #include "Helpers.hpp"
+#include "OrbitCamera.hpp"
+
+extern OrbitCam g_OrbitCam;
+extern GLFWwindow* g_MainWindow;
 
 bool ReadFile(const char* filePath, std::string& fileContents, bool bBinaryFile)
 {
@@ -210,4 +214,55 @@ bool LinkProgram(u32 program)
 	}
 
 	return true;
+}
+
+void GenerateDirectionRayFromScreenPos(i32 x, i32 y, glm::vec3& rayO, glm::vec3& rayDir)
+{
+	i32 frameBufferWidth;
+	i32 frameBufferHeight;
+	glfwGetWindowSize(g_MainWindow, &frameBufferWidth, &frameBufferHeight);
+	float aspectRatio = (float)frameBufferWidth / frameBufferHeight;
+
+	float tanFov = tanf(0.5f * g_OrbitCam.FOV);
+
+	float pixelScreenX = 2.0f * ((x + 0.5f) / (float)frameBufferWidth) - 1.0f;
+	float pixelScreenY = 1.0f - 2.0f * ((y + 0.5f) / (float)frameBufferHeight);
+
+	float pixelCameraX = pixelScreenX * aspectRatio * tanFov;
+	float pixelCameraY = pixelScreenY * tanFov;
+
+
+	glm::mat4 cameraView = glm::inverse(g_OrbitCam.GetView()) * glm::inverse(g_OrbitCam.GetProj());
+
+	rayO = cameraView * glm::vec4(rayO, 1.0f);
+
+	glm::vec3 rayPWorld = cameraView * glm::vec4(pixelCameraX, pixelCameraY, -1.0f, 1.0f);
+	rayDir = glm::normalize(rayPWorld - rayO);
+}
+
+bool RaySphereIntersection(const glm::vec3& rayO, const glm::vec3& rayDir, const glm::vec3& sphereCenter, float sphereRadius)
+{
+	float t_min = 0.1f;
+	float t_max = 1000.0f;
+	glm::vec3 oc = rayO - sphereCenter;
+	float a = dot(rayDir, rayDir);
+	float b = dot(oc, rayDir);
+	float c = dot(oc, oc) - sphereRadius * sphereRadius;
+	float discriminant = b * b - a * c;
+	if (discriminant > 0)
+	{
+		float temp = (-b - sqrt(discriminant)) / a;
+		if (temp < t_max && temp > t_min)
+		{
+			return true;
+		}
+
+		temp = (-b + sqrt(discriminant)) / a;
+		if (temp < t_max && temp > t_min)
+		{
+			return true;
+		}
+	}
+
+	return false;
 }

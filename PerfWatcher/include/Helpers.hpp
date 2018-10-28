@@ -19,6 +19,10 @@ bool LoadGLShaders(u32 program, const char* vertShaderPath, const char* fragShad
 
 bool LinkProgram(u32 program);
 
+void GenerateDirectionRayFromScreenPos(i32 x, i32 y, glm::vec3& rayO, glm::vec3& rayDir);
+
+bool RaySphereIntersection(const glm::vec3& rayO, const glm::vec3& rayDir, const glm::vec3& sphereCenter, float sphereRadius);
+
 template<class T>
 T Lerp(T a, T b, float t)
 {
@@ -125,3 +129,7 @@ struct EaseValue
 };
 
 #define ARRAY_LENGTH(arr) ((int)(sizeof(arr)/sizeof(*arr)))
+
+static const glm::vec3 VEC_RIGHT(1.0f, 0.0f, 0.0f);
+static const glm::vec3 VEC_UP(0.0f, 1.0f, 0.0f);
+static const glm::vec3 VEC_FORWARD(0.0f, 0.0f, 1.0f);

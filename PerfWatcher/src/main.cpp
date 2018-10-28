@@ -12,19 +12,25 @@
 #pragma warning(pop)
 
 #include "Helpers.hpp"
+#include "OrbitCamera.hpp"
+
+extern bool g_MouseJustPressed[5];
 
 GLFWwindow* g_MainWindow = nullptr;
 glm::vec2i g_WindowSize = glm::vec2i(1280, 720);
 float g_DT = 0.0f;
 bool g_LMBDown = false;
+bool g_MMBDown = false;
 glm::vec2i g_CursorPos;
 
 float g_DataPointSize = 1.0f;
 
-float g_xScale = 100.0f;
-float g_yScale = 100.0f;
+glm::vec3 g_AreaSize(100.0f, 60.0f, 200.0f);
+
+float g_xScale;
+float g_yScale;
 EaseValue<float> g_yScaleMult(EaseType::CUBIC_IN_OUT, 0.0f, 1.0f, 2.0f);
-float g_zScale = 100.0f;
+float g_zScale;
 
 GLuint g_MainProgram;
 float* g_FullScreenTriVertexBuffer;
@@ -36,13 +42,23 @@ std::vector<glm::mat4> g_DataPlotModelMats;
 std::vector<GLuint> g_DataVAOs;
 std::vector<GLuint> g_DataVBOs;
 
+struct DataPointRenderData
+{
+	DataPointRenderData(const glm::mat4& model, const glm::vec4& colour) :
+		model(model), colour(colour) {}
+
+	glm::mat4 model;
+	glm::vec4 colour;
+};
+
 std::vector<float*> g_DataPointVertexBuffers;
-std::vector<glm::mat4> g_DataPointModelMats;
+std::vector<DataPointRenderData> g_DataPointRenderData;
 std::vector<GLuint> g_DataPointVAOs;
 std::vector<GLuint> g_DataPointVBOs;
 
 i32 g_HAxisCount = 10;
 i32 g_VAxisCount = 10;
+OrbitCam g_OrbitCam;
 
 std::vector<float*> g_AxisVertexBuffers;
 std::vector<i32> g_AxisVertexBufferCounts;
@@ -51,12 +67,6 @@ std::vector<GLuint> g_AxisVAOs;
 std::vector<GLuint> g_AxisVBOs;
 
 i32 g_ColorMultiplierLoc = -1;
-
-extern bool g_MouseJustPressed[5];
-
-static const glm::vec3 VEC_RIGHT(1.0f, 0.0f, 0.0f);
-static const glm::vec3 VEC_UP(0.0f, 1.0f, 0.0f);
-static const glm::vec3 VEC_FORWARD(0.0f, 0.0f, 1.0f);
 
 
 void GLFWErrorCallback(i32 error, const char* description);
@@ -79,101 +89,6 @@ void GenerateAxesVertexBuffer(i32 verticalCount, i32 horizCount, GLuint& VAO, GL
 void DescribeShaderVertexAttributes();
 
 void DrawFullScreenQuad();
-
-struct OrbitCam
-{
-	OrbitCam()
-	{
-		FOV = glm::radians(80.0f);
-		aspectRatio = g_WindowSize.x / (float)g_WindowSize.y;
-		nearPlane = 0.1f;
-		farPlane = 1000.0f;
-
-		center = glm::vec3(g_xScale/2.0f, 0.0f, g_zScale/2.0f);
-		offset = glm::vec3(100.0f, 100.0f, 100.0f);
-		offset = glm::normalize(offset) * distFromCenter;
-
-		offsetVel = glm::vec2(0.0f, 0.0f);
-
-		CalculateBasis();
-	}
-
-	void Tick()
-	{
-		offsetVel *= (1.0f - glm::clamp(g_DT * 20.0f, 0.0f, 0.99f));
-		offset += right * offsetVel.x + up * offsetVel.y;
-		//printf("offset vel: %.1f, %.1f\n", offsetVel.x, offsetVel.y);
-
-		CalculateBasis();
-	}
-
-	glm::mat4 GetViewProj()
-	{
-		aspectRatio = g_WindowSize.x / (float)g_WindowSize.y;
-
-		float orthoSize = glm::length(offset);
-		glm::mat4 projection = bPerspective ?
-			glm::perspective(FOV, aspectRatio, nearPlane, farPlane) :
-			glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
-		glm::mat4 view = glm::lookAt(offset + center, center, VEC_UP);
-		glm::mat4 viewProj = projection * view;
-
-		return viewProj;
-	}
-
-	void Orbit(float horizontal, float vertical)
-	{
-		offset += right * horizontal + up * vertical;
-		offset = glm::normalize(offset) * distFromCenter;
-		glm::vec2 offsetXY(glm::dot(offset, right), glm::dot(offset, up));
-		offsetVel += offsetXY;// Lerp(offsetVel, offsetXY, 0.1f);
-
-		CalculateBasis();
-	}
-
-	void Zoom(float amount)
-	{
-		distFromCenter += amount * zoomSpeed;
-		offset = glm::normalize(offset) * distFromCenter;
-	}
-
-	void CalculateBasis()
-	{
-		glm::mat4 view = glm::lookAt(offset + center, center, VEC_UP);
-		view = glm::transpose(view);
-		right = view[0];
-		up = view[1];
-		forward = view[2];
-
-		//printf("Basis: (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f), (%.1f, %.1f, %.1f)\n", right.x, right.y, right.z, up.x, up.y, up.z, forward.x, forward.y, forward.z);
-	}
-
-	void SetPerspective(bool bNewPersective)
-	{
-		bPerspective = bNewPersective;
-	}
-
-	float FOV;
-	float aspectRatio;
-	float nearPlane;
-	float farPlane;
-	float distFromCenter = 200.0f;
-
-	bool bPerspective;
-
-	glm::vec3 center;
-	glm::vec3 offset;
-	glm::vec2 offsetVel;
-
-	glm::vec3 right;
-	glm::vec3 up;
-	glm::vec3 forward;
-
-	float orbitSpeed = 10.0f;
-	float zoomSpeed = 4.0f;
-};
-
-OrbitCam g_OrbitCam;
 
 class PerfWatcher
 {
@@ -255,18 +170,39 @@ public:
 		glClearColor(1, 0, 1, 1);
 
 
-
 		g_OrbitCam = OrbitCam();
 
 		std::vector<std::string> headers;
 		const char* csvFileFilePath = RESOURCE_LOCATION "input/input-01.csv";
 		glm::vec2 minMaxValues;
-		if (!ParseCSV(csvFileFilePath, headers, dataRows, minMaxValues, 10))
+		std::vector<std::vector<float>> dataRows;
+		if (!ParseCSV(csvFileFilePath, headers, dataRows, minMaxValues, 30))
 		{
 			printf("No loaded data!\n");
 		}
+		else
+		{
+			i32 rowCount = (i32)dataRows.size();
+			i32 colCount = (i32)dataRows[0].size();
+			dataCols.reserve(colCount);
+			for (i32 i = 0; i < colCount; i++)
+			{
+				std::vector<float> col;
+				col.reserve(rowCount);
 
-		g_yScale = 100.0f / (minMaxValues.y - minMaxValues.x);
+				for (i32 j = 0; j < rowCount; j++)
+				{
+					col.push_back(dataRows[j][i]);
+				}
+
+				dataCols.push_back(col);
+			}
+		}
+
+
+		g_xScale = g_AreaSize.x;
+		g_yScale = g_AreaSize.y / (minMaxValues.y - minMaxValues.x);
+		g_zScale = g_AreaSize.z;
 
 		GLuint vertShaderID, fragShaderID;
 		g_MainProgram = glCreateProgram();
@@ -280,32 +216,32 @@ public:
 
 		GenerateFullScreenTri();
 
-		i32 plotCount = (i32)dataRows.size();
+		i32 plotCount = (i32)dataCols.size();
 		for (i32 i = 0; i < plotCount; ++i)
 		{
-			const std::vector<float>& row = dataRows[i];
+			const std::vector<float>& col = dataCols[i];
 
 			GLuint VAO, VBO;
 
-			GenerateVertexBufferFromData(row, VAO, VBO);
+			GenerateVertexBufferFromData(col, VAO, VBO);
 
 			g_DataVAOs.push_back(VAO);
 			g_DataVBOs.push_back(VBO);
 
-			glm::vec3 plotTranslation = glm::vec3(g_xScale * (float)i / (plotCount - 1) - 0.5f, 0.0f, 0.0f);
+			glm::vec3 plotTranslation = glm::vec3(g_xScale * ((float)i / (plotCount - 1) - 0.5f), 0.0f, 0.0f);
 			glm::mat4 model = glm::translate(glm::mat4(1.0f), plotTranslation);
 			g_DataPlotModelMats.push_back(model);
 
-			for (i32 j = 0; j < (i32)row.size(); ++j)
+			for (i32 j = 0; j < (i32)col.size(); ++j)
 			{
 				GLuint pointVAO, pointVBO;
-				float percent = (float)j / row.size();
+				float percent = (float)j / col.size();
 
 				GenerateCubeVertexBuffer(g_DataPointSize, pointVAO, pointVBO);
 
-				glm::vec3 dataPointTranslation =  glm::vec3(0.0f, row[j], g_zScale * percent);
+				glm::vec3 dataPointTranslation =  glm::vec3(0.0f, col[j], g_zScale * percent);
 				glm::mat4 dataPointModel = glm::translate(glm::mat4(1.0f), dataPointTranslation);
-				g_DataPointModelMats.push_back(dataPointModel);
+				g_DataPointRenderData.emplace_back(dataPointModel, glm::vec4(1.0f));
 
 				g_DataPointVAOs.push_back(pointVAO);
 				g_DataPointVBOs.push_back(pointVBO);
@@ -321,6 +257,36 @@ public:
 		glEnable(GL_DEPTH_TEST);
 	}
 
+	void Tick()
+	{
+		if (ImGui::IsKeyDown(GLFW_KEY_T))
+		{
+			g_yScaleMult.Reset();
+		}
+
+		g_OrbitCam.Tick();
+		g_yScaleMult.Tick();
+
+		glm::vec3 rayO = g_OrbitCam.GetPos();
+		glm::vec3 rayDir;
+		GenerateDirectionRayFromScreenPos(g_CursorPos.x, g_CursorPos.y, rayO, rayDir);
+		for (auto& dataPointRenderData : g_DataPointRenderData)
+		{
+			glm::vec4 pos(0.0f, 0.0f, 0.0f, 1.0f);
+			pos = dataPointRenderData.model * pos;
+
+			if (RaySphereIntersection(rayO, rayDir, (glm::vec3)pos, g_DataPointSize))
+			{
+				printf("intersect!\n");
+				dataPointRenderData.colour= glm::vec4(10.0f);
+			}
+			else
+			{
+				dataPointRenderData.colour = glm::vec4(1.0f);
+			}
+		}
+	}
+
 	void Loop()
 	{
 		float timePrev = (float)glfwGetTime();
@@ -332,18 +298,12 @@ public:
 
 			glfwPollEvents();
 
-			if (ImGui::IsKeyDown(GLFW_KEY_T))
-			{
-				g_yScaleMult.Reset();
-			}
-
-			g_OrbitCam.Tick();
-			g_yScaleMult.Tick();
-
 			// Start the ImGui frame
 			ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
+
+			Tick();
 
 			DoImGuiItems();
 
@@ -379,22 +339,31 @@ public:
 				glm::mat4 plotModel = g_DataPlotModelMats[i] * scaleMat;
 				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &plotModel[0][0]);
 
-				glDrawArrays(GL_LINE_STRIP, 0, dataRows[i].size());
+				glDrawArrays(GL_LINE_STRIP, 0, dataCols[i].size());
 
-				i32 dataElements = (i32)dataRows[i].size();
+				i32 dataElements = (i32)dataCols[i].size();
 				for (i32 j = 0; j < dataElements; ++j)
 				{
 					glBindVertexArray(g_DataPointVAOs[i]);
 					glBindBuffer(GL_ARRAY_BUFFER, g_DataPointVBOs[i]);
 
+					glEnable(GL_CULL_FACE);
+
+					GLint brightnessMultLoc = glGetUniformLocation(g_MainProgram, "ColourMultiplier");
+					glUniform4f(brightnessMultLoc,
+						g_DataPointRenderData[i].colour.x,
+						g_DataPointRenderData[i].colour.y,
+						g_DataPointRenderData[i].colour.z,
+						g_DataPointRenderData[i].colour.w);
 
 					glm::vec3 plotTranslation = glm::vec3(
-						g_xScale * (float)i / (plotCount - 1) - 0.5f - 0.5f,
-						g_yScale * g_yScaleMult.current * dataRows[i][j] - 0.5f,
-						g_zScale * (float)j / dataElements - 0.5f);
+						g_xScale * ((float)i / (plotCount - 1) - 0.5f) - g_DataPointSize / 2.0f,
+						g_yScale * g_yScaleMult.current * dataCols[i][j] - g_DataPointSize / 2.0f,
+						g_zScale * ((float)j / dataElements - 0.5f) - g_DataPointSize / 2.0f);
 					glm::mat4 dataPointModel = glm::translate(glm::mat4(1.0f), plotTranslation);
 					dataPointModel = glm::rotate(dataPointModel, glm::radians(45.0f), glm::vec3(1.0f, 0.0f, 0.0f));
 					dataPointModel = glm::rotate(dataPointModel, glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+					g_DataPointRenderData[i].model = dataPointModel;
 					glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &dataPointModel[0][0]);
 
 					glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -408,26 +377,37 @@ public:
 
 			float fDirectionality = (glm::max(FoF, 0.0f) - dotThreshold) / (1.0f - dotThreshold);
 			printf("%.2f, %.2f, %.2f\n", FoF, FoR, fDirectionality);
+			static const float windowUpdateRate = 0.2f;
+			static float windowTitleTimer = windowUpdateRate;
+			windowTitleTimer += g_DT;
+			if (windowTitleTimer >= windowUpdateRate)
+			{
+				windowTitleTimer -= windowUpdateRate;
+				float FPS = 1.0f / g_DT;
+				std::string windowTitle = "PerfWatcher v0.0.1 - " + FloatToString(g_DT, 2) + "ms / " + FloatToString(FPS, 0) + " fps";
+				glfwSetWindowTitle(g_MainWindow, windowTitle.c_str());
+			}
+
+			glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 1.0f);
 
 			for (i32 i = 0; i < (i32)g_AxisVAOs.size(); ++i)
 			{
 				glBindVertexArray(g_AxisVAOs[i]);
 				glBindBuffer(GL_ARRAY_BUFFER, g_AxisVBOs[i]);
 
-				glm::vec3 scaleVec(g_xScale, 0.0f, g_zScale);
-				glm::mat4 axesModel = glm::translate(glm::mat4(1.0f), scaleVec / 2.0f);
-				scaleVec.y = 100.0f;
-				axesModel = glm::scale(axesModel, scaleVec);
+				glm::vec3 scaleVec = glm::vec3(g_xScale, 0.0f, g_zScale) * 0.55f;
+				scaleVec.y = g_yScale * g_yScaleMult.current * 100.0f;
+				glm::mat4 axesModel = glm::scale(glm::mat4(1.0f), scaleVec);
 				glUniformMatrix4fv(modelLocation, 1, GL_FALSE, &axesModel[0][0]);
 
 				for (i32 j = 0; j < g_VAxisCount; ++j)
 				{
 					if (FoF > dotThreshold || FoR > 0.0f)
 					{
-						//float a = Lerp(1.0f, 0.0f, fDirectionality*(1.0/(1.0-dotThreshold)));
-						//glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, a);
+						float a = Lerp(1.0f, 0.0f, fDirectionality*(1.0 / (1.0 - dotThreshold)));
+						glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, a);
 						glDrawArrays(GL_LINES, j * 8, 2);
-						//glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 0.5f);
+						glUniform4f(g_ColorMultiplierLoc, 1.0f, 1.0f, 1.0f, 0.5f);
 					}
 
 					if (FoR > dotThreshold || FoF > 0.0f)
@@ -446,14 +426,8 @@ public:
 				}
 			}
 
-			float FPS = 1.0f / g_DT;
-			std::string windowTitle = "PerfWatcher v0.0.1 - " + FloatToString(g_DT, 2) + "ms / " + FloatToString(FPS, 0) + " fps";
-			glfwSetWindowTitle(g_MainWindow, windowTitle.c_str());
-
-
 			ImGui::Render();
 			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
 
 			glfwSwapBuffers(g_MainWindow);
 		}
@@ -544,6 +518,10 @@ public:
 			float scale = g_DT * g_OrbitCam.orbitSpeed;
 			g_OrbitCam.Orbit(-dMousePos.x * scale, dMousePos.y * scale);
 		}
+		else if (g_MMBDown)
+		{
+			g_OrbitCam.Pan(g_OrbitCam.right * (float)dMousePos.x + g_OrbitCam.forward * (float)dMousePos.y);
+		}
 	}
 
 	void ScrollCallback(float xOffset, float yOffset)
@@ -552,7 +530,7 @@ public:
 	}
 
 private:
-	std::vector<std::vector<float>> dataRows;
+	std::vector<std::vector<float>> dataCols;
 	bool bRunning = true;
 
 };
@@ -602,12 +580,20 @@ void GLFWMouseButtonCallback(GLFWwindow* window, int button, int action, int mod
 		{
 			g_LMBDown = true;
 		}
+		else if (button == GLFW_MOUSE_BUTTON_MIDDLE)
+		{
+			g_MMBDown = true;
+		}
 	}
 	else
 	{
 		if (button == GLFW_MOUSE_BUTTON_LEFT)
 		{
 			g_LMBDown = false;
+		}
+		else if (button == GLFW_MOUSE_BUTTON_MIDDLE)
+		{
+			g_MMBDown = false;
 		}
 	}
 }
@@ -746,9 +732,9 @@ void GenerateFullScreenTri()
 	};
 
 	std::vector<glm::vec4> colours = {
-		glm::vec4(0.2f, 0.2f, 0.8f, 1.0f),
-		glm::vec4(0.2f, 0.8f, 0.8f, 1.0f),
-		glm::vec4(0.8f, 0.2f, 0.2f, 1.0f)
+		glm::vec4(0.12f, 0.12f, 0.48f, 1.0f),
+		glm::vec4(0.12f, 0.48f, 0.48f, 1.0f),
+		glm::vec4(0.48f, 0.12f, 0.12f, 1.0f)
 	};
 
 	i32 vertexCount = (i32)positions.size();
@@ -816,16 +802,16 @@ void GenerateCubeVertexBuffer(float size, GLuint& VAO, GLuint& VBO)
 	positions.emplace_back(g_DataPointSize, 0.0f, g_DataPointSize);
 	positions.emplace_back(0.0f, 0.0f, g_DataPointSize);
 	positions.emplace_back(0.0f, g_DataPointSize, g_DataPointSize);
-	positions.emplace_back(0.0f, 0.0f, g_DataPointSize);
-	positions.emplace_back(0.0f, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(g_DataPointSize, g_DataPointSize, g_DataPointSize);
+	positions.emplace_back(g_DataPointSize, 0.0f, g_DataPointSize);
 
 	// Bottom
 	positions.emplace_back(g_DataPointSize, 0.0f, g_DataPointSize);
-	positions.emplace_back(0.0f, 0.0f, g_DataPointSize);
 	positions.emplace_back(0.0f, 0.0f, 0.0f);
 	positions.emplace_back(0.0f, 0.0f, g_DataPointSize);
 	positions.emplace_back(g_DataPointSize, 0.0f, g_DataPointSize);
 	positions.emplace_back(g_DataPointSize, 0.0f, 0.0f);
+	positions.emplace_back(0.0f, 0.0f, 0.0f);
 
 	// Right
 	positions.emplace_back(g_DataPointSize, g_DataPointSize, g_DataPointSize);
@@ -992,12 +978,13 @@ void GenerateVertexBufferFromData(const std::vector<float>& data, GLuint& VAO, G
 	std::vector<glm::vec4> colours;
 	colours.reserve(vertexCount);
 
-	float currentZ = 0.0f;
+	float currentZ = -g_zScale / 2.0f;
 	for (i32 i = 0; i < vertexCount; ++i)
 	{
 		float percent = (float)i / vertexCount;
 		positions.emplace_back(0.0f, data[i], currentZ);
-		colours.emplace_back(percent, 1.0f - percent, 0.5f, 1.0f);
+		float heightPercent = data[i] / (g_yScale * g_AreaSize.y);
+		colours.emplace_back(heightPercent, 1.0f - heightPercent, 0.1f, 1.0f);
 
 		currentZ += g_zScale * (1.0f / vertexCount);
 	}
