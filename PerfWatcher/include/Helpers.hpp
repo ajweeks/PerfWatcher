@@ -24,6 +24,20 @@ void GenerateDirectionRayFromScreenPos(i32 x, i32 y, glm::vec3& rayO, glm::vec3&
 bool RaySphereIntersection(const glm::vec3& rayO, const glm::vec3& rayDir, const glm::vec3& sphereCenter, float sphereRadius);
 
 template<class T>
+inline typename std::vector<T>::const_iterator Find(const std::vector<T>& vec, const T& t)
+{
+	for (std::vector<T>::const_iterator iter = vec.begin(); iter != vec.end(); ++iter)
+	{
+		if (*iter == t)
+		{
+			return iter;
+		}
+	}
+
+	return vec.end();
+}
+
+template<class T>
 T Lerp(T a, T b, float t)
 {
 	return (a * (1.0f - t)) + (t * b);

@@ -16,6 +16,8 @@
 
 extern bool g_MouseJustPressed[5];
 
+std::vector<std::string> g_LoadedFiles;
+
 GLFWwindow* g_MainWindow = nullptr;
 glm::vec2i g_WindowSize = glm::vec2i(1280, 720);
 float g_DT = 0.0f;
@@ -79,6 +81,7 @@ void GLFWSetClipboardText(void* user_data, const char* text);
 void GLFWScrollCallback(GLFWwindow* window, double xOffset, double yOffset);
 void GLFWKeyCallback(GLFWwindow* window, int key, int, int action, int mods);
 void GLFWCharCallback(GLFWwindow* window, unsigned int c);
+void GLFWDropCallback(GLFWwindow* window, int count, const char** paths);
 
 
 bool ParseCSV(const char* filePath, std::vector<std::string>& outHeaders, std::vector<std::vector<float>>& outDataRows, glm::vec2& outMinmMaxValues, i32 maxRowCount = -1);
@@ -141,6 +144,7 @@ public:
 		glfwSetScrollCallback(g_MainWindow, GLFWScrollCallback);
 		glfwSetKeyCallback(g_MainWindow, GLFWKeyCallback);
 		glfwSetCharCallback(g_MainWindow, GLFWCharCallback);
+		glfwSetDropCallback(g_MainWindow, GLFWDropCallback);
 
 		glfwMakeContextCurrent(g_MainWindow);
 
@@ -654,6 +658,24 @@ void GLFWCharCallback(GLFWwindow*, unsigned int c)
 	if (c > 0 && c < 0x10000)
 	{
 		io.AddInputCharacter((unsigned short)c);
+	}
+}
+
+void GLFWDropCallback(GLFWwindow* window, int count, const char** paths)
+{
+	i32 filesAdded = 0;
+	for (i32 i = 0; i < count; ++i)
+	{
+		if (Find(g_LoadedFiles, std::string(paths[i])) == g_LoadedFiles.end())
+		{
+			g_LoadedFiles.emplace_back(paths[i]);
+			++filesAdded;
+		}
+	}
+
+	if (filesAdded > 0)
+	{
+		printf("%d file(s) added, %d total\n", filesAdded, g_LoadedFiles.size());
 	}
 }
 
