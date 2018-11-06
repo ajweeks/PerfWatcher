@@ -29,10 +29,10 @@ float g_DataPointSize = 1.0f;
 
 glm::vec3 g_AreaSize(100.0f, 60.0f, 200.0f);
 
-float g_xScale;
-float g_yScale;
+float g_xScale = 1.0f;
+float g_yScale = 1.0f;
 EaseValue<float> g_yScaleMult(EaseType::CUBIC_IN_OUT, 0.0f, 1.0f, 2.0f);
-float g_zScale;
+float g_zScale = 1.0f;
 
 GLuint g_MainProgram;
 float* g_FullScreenTriVertexBuffer;
@@ -177,37 +177,7 @@ public:
 
 		g_OrbitCam = OrbitCam();
 
-		std::vector<std::string> headers;
-		const char* csvFileFilePath = RESOURCE_LOCATION "input/input-01.csv";
-		glm::vec2 minMaxValues;
-		std::vector<std::vector<float>> dataRows;
-		if (!ParseCSV(csvFileFilePath, headers, dataRows, minMaxValues, 30))
-		{
-			printf("No loaded data!\n");
-		}
-		else
-		{
-			i32 rowCount = (i32)dataRows.size();
-			i32 colCount = (i32)dataRows[0].size();
-			dataCols.reserve(colCount);
-			for (i32 i = 0; i < colCount; i++)
-			{
-				std::vector<float> col;
-				col.reserve(rowCount);
-
-				for (i32 j = 0; j < rowCount; j++)
-				{
-					col.push_back(dataRows[j][i]);
-				}
-
-				dataCols.push_back(col);
-			}
-		}
-
-
-		g_xScale = g_AreaSize.x;
-		g_yScale = g_AreaSize.y / (minMaxValues.y - minMaxValues.x);
-		g_zScale = g_AreaSize.z;
+		// ...
 
 		GLuint vertShaderID, fragShaderID;
 		g_MainProgram = glCreateProgram();
@@ -259,6 +229,79 @@ public:
 		g_AxisVBOs.push_back(axesVBO);
 
 		glEnable(GL_DEPTH_TEST);
+	}
+
+	void LoadFile(const std::string& filePath)
+	{
+		std::vector<std::string> headers;
+		glm::vec2 minMaxValues;
+		std::vector<std::vector<float>> dataRows;
+		if (!ParseCSV(filePath.c_str(), headers, dataRows, minMaxValues, 30))
+		{
+			printf("Failed to load data from %s!\n", filePath.c_str());
+		}
+		else
+		{
+			i32 rowCount = (i32)dataRows.size();
+			i32 colCount = (i32)dataRows[0].size();
+			dataCols.reserve(colCount);
+			for (i32 i = 0; i < colCount; i++)
+			{
+				std::vector<float> col;
+				col.reserve(rowCount);
+
+				for (i32 j = 0; j < rowCount; j++)
+				{
+					col.push_back(dataRows[j][i]);
+				}
+
+				dataCols.push_back(col);
+			}
+		}
+
+		g_xScale = g_AreaSize.x;
+		g_yScale = g_AreaSize.y / (minMaxValues.y - minMaxValues.x);
+		g_zScale = g_AreaSize.z;
+
+		g_yScaleMult.Reset();
+
+
+		glDeleteBuffers(g_DataVAOs.size(), g_DataVAOs.data());
+		glDeleteBuffers(g_DataVBOs.size(), g_DataVBOs.data());
+		g_DataVAOs.clear();
+		g_DataVBOs.clear();
+
+		i32 plotCount = (i32)dataCols.size();
+		for (i32 i = 0; i < plotCount; ++i)
+		{
+			const std::vector<float>& col = dataCols[i];
+
+			GLuint VAO, VBO;
+
+			GenerateVertexBufferFromData(col, VAO, VBO);
+
+			g_DataVAOs.push_back(VAO);
+			g_DataVBOs.push_back(VBO);
+
+			glm::vec3 plotTranslation = glm::vec3(g_xScale * ((float)i / (plotCount - 1) - 0.5f), 0.0f, 0.0f);
+			glm::mat4 model = glm::translate(glm::mat4(1.0f), plotTranslation);
+			g_DataPlotModelMats.push_back(model);
+
+			for (i32 j = 0; j < (i32)col.size(); ++j)
+			{
+				GLuint pointVAO, pointVBO;
+				float percent = (float)j / col.size();
+
+				GenerateCubeVertexBuffer(g_DataPointSize, pointVAO, pointVBO);
+
+				glm::vec3 dataPointTranslation = glm::vec3(0.0f, col[j], g_zScale * percent);
+				glm::mat4 dataPointModel = glm::translate(glm::mat4(1.0f), dataPointTranslation);
+				g_DataPointRenderData.emplace_back(dataPointModel, glm::vec4(1.0f));
+
+				g_DataPointVAOs.push_back(pointVAO);
+				g_DataPointVBOs.push_back(pointVBO);
+			}
+		}
 	}
 
 	void Tick()
@@ -676,6 +719,7 @@ void GLFWDropCallback(GLFWwindow* window, int count, const char** paths)
 	if (filesAdded > 0)
 	{
 		printf("%d file(s) added, %d total\n", filesAdded, g_LoadedFiles.size());
+		g_Application.LoadFile(*(g_LoadedFiles.end() - 1));
 	}
 }
 
