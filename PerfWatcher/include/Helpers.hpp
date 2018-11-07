@@ -9,6 +9,7 @@ bool ReadFile(const char* filePath, std::vector<char>& vec, bool bBinaryFile);
 
 std::vector<std::string> Split(const std::string& str, char delim);
 
+i32 ParseInt(const std::string& intStr);
 float ParseFloat(const std::string& floatStr);
 std::string FloatToString(float f, i32 precision);
 

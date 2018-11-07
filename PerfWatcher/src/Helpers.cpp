@@ -116,6 +116,17 @@ void TrimWhitespace(std::string& str)
 	}
 }
 
+i32 ParseInt(const std::string& intStr)
+{
+	if (intStr.empty())
+	{
+		printf("Invalid int string (empty)\n");
+		return -1;
+	}
+
+	return std::atoi(intStr.c_str());
+}
+
 float ParseFloat(const std::string& floatStr)
 {
 	if (floatStr.empty())

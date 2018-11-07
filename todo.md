@@ -11,7 +11,10 @@
 [ ] Smooth transition from ortho->perspective
 [ ] Fast reimport
 [ ] Import multiple sheets
-[ ] Auto save which sheets are opened, camera angle, hidden plots, ...
+[ ] Save
+	[ ] Sheets opened
+	[ ] Cam pos
+	[ ] 
 [ ] Zoom to show all data
 [ ] Camera panning
 [ ] Import & visualize non-per-frame data (summary files)

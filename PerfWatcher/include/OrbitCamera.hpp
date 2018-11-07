@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 
 struct OrbitCam
 {
@@ -17,6 +18,8 @@ struct OrbitCam
 	glm::vec3 GetPos();
 
 	void Reset();
+
+	void ParseUserConfigFile(const std::vector<std::string>& fileContents);
 
 	float FOV;
 	float aspectRatio;

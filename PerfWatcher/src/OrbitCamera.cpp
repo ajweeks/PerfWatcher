@@ -123,3 +123,17 @@ void OrbitCam::Reset()
 
 	CalculateBasis();
 }
+
+void OrbitCam::ParseUserConfigFile(const std::vector<std::string>& fileContents)
+{
+	i32 row = 0;
+	while (row < fileContents.size())
+	{
+		if (fileContents[row].compare("#camera-persp:") == 0)
+		{
+			bPerspective = (ParseInt(fileContents[row + 1]) == 1);
+		}
+
+		row++;
+	}
+}

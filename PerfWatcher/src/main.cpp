@@ -99,8 +99,10 @@ class PerfWatcher
 public:
 	void Init()
 	{
-		glm::vec3 a(1.0f, 2.0f, 3.0f);
-		ImVec2 v(4.0f, 5.0f);
+		g_OrbitCam = OrbitCam();
+
+		userConfigFilePath = RESOURCE_LOCATION "user-config.ini";
+		LoadUserConfigFile();
 
 		glfwSetErrorCallback(GLFWErrorCallback);
 
@@ -175,8 +177,6 @@ public:
 		glClearColor(1, 0, 1, 1);
 
 
-		g_OrbitCam = OrbitCam();
-
 		GLuint vertShaderID, fragShaderID;
 		g_MainProgram = glCreateProgram();
 		LoadGLShaders(g_MainProgram, RESOURCE_LOCATION "shaders/vert.v", RESOURCE_LOCATION "shaders/frag.f", vertShaderID, fragShaderID);
@@ -185,7 +185,6 @@ public:
 		glUseProgram(g_MainProgram);
 
 		g_ColorMultiplierLoc = glGetUniformLocation(g_MainProgram, "ColourMultiplier");
-
 
 		GenerateFullScreenTri();
 
@@ -227,6 +226,18 @@ public:
 		g_AxisVBOs.push_back(axesVBO);
 
 		glEnable(GL_DEPTH_TEST);
+	}
+
+	void LoadUserConfigFile()
+	{
+		std::string userConfigFileContents;
+		if (!ReadFile(userConfigFilePath.c_str(), userConfigFileContents, false))
+		{
+			return;
+		}
+
+		std::vector<std::string> userConfigFileContentsVec = Split(userConfigFileContents, '\n');
+		g_OrbitCam.ParseUserConfigFile(userConfigFileContentsVec);
 	}
 
 	void LoadFile(const std::string& filePath)
@@ -595,6 +606,7 @@ public:
 private:
 	std::vector<std::vector<float>> dataCols;
 	bool bRunning = true;
+	std::string userConfigFilePath;
 
 };
 
