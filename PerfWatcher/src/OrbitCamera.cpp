@@ -17,18 +17,7 @@ extern float g_zScale;
 
 OrbitCam::OrbitCam()
 {
-	FOV = glm::radians(80.0f);
-	aspectRatio = g_WindowSize.x / (float)g_WindowSize.y;
-	nearPlane = 0.1f;
-	farPlane = 1000.0f;
-
-	center = glm::vec3(g_xScale / 2.0f, 0.0f, g_zScale / 2.0f);
-	offset = glm::vec3(100.0f, 100.0f, 100.0f);
-	offset = glm::normalize(offset) * distFromCenter;
-
-	offsetVel = glm::vec2(0.0f, 0.0f);
-
-	CalculateBasis();
+	Reset();
 }
 
 void OrbitCam::Tick()
@@ -77,7 +66,7 @@ void OrbitCam::Orbit(float horizontal, float vertical)
 	offset += right * horizontal + up * vertical;
 	offset = glm::normalize(offset) * distFromCenter;
 	glm::vec2 offsetXY(glm::dot(offset, right), glm::dot(offset, up));
-	offsetVel += offsetXY;// Lerp(offsetVel, offsetXY, 0.1f);
+	offsetVel += offsetXY;
 
 	CalculateBasis();
 }
@@ -85,10 +74,10 @@ void OrbitCam::Orbit(float horizontal, float vertical)
 void OrbitCam::Pan(const glm::vec3& o)
 {
 	// TODO: Implement!
-	//center += o * panSpeed;
+	center += o * panSpeed;
 	////offset += o * panSpeed;
 
-	//CalculateBasis();
+	CalculateBasis();
 }
 
 void OrbitCam::Zoom(float amount)
@@ -100,7 +89,7 @@ void OrbitCam::Zoom(float amount)
 
 void OrbitCam::CalculateBasis()
 {
-	glm::mat4 view = glm::lookAt(offset, center, VEC_UP);
+	glm::mat4 view = glm::lookAt(offset + center, center, VEC_UP);
 	view = glm::transpose(view);
 	right = view[0];
 	up = view[1];
@@ -115,4 +104,22 @@ void OrbitCam::SetPerspective(bool bNewPersective)
 glm::vec3 OrbitCam::GetPos()
 {
 	return center + offset;
+}
+
+void OrbitCam::Reset()
+{
+	FOV = glm::radians(80.0f);
+	aspectRatio = (float)g_WindowSize.x / (float)g_WindowSize.y;
+	nearPlane = 0.1f;
+	farPlane = 1000.0f;
+
+	center = glm::vec3(0.5f, 0.0f, 0.5f);
+	offset = glm::vec3(100.0f, 100.0f, 100.0f);
+	offset = glm::normalize(offset) * distFromCenter;
+
+	offsetVel = glm::vec2(0.0f);
+
+	bPerspective = true;
+
+	CalculateBasis();
 }

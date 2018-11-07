@@ -1,7 +1,11 @@
 
+[ ] View from side button
+[ ] Interpolate between perp & ortho
+[ ] Clamp pitch to +-89 deg
+[x] Drop file over window support
 [ ] Text rendering
 	[ ] Show data point value on hover
-[ ] Visualize axes
+[x] Visualize axes
 	[ ] Allow axes to be dragged to scale data
 	[ ] Allow hiding/showing individual plots
 [ ] Smooth transition from ortho->perspective

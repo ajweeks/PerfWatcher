@@ -16,6 +16,8 @@ struct OrbitCam
 	void SetPerspective(bool bNewPersective);
 	glm::vec3 GetPos();
 
+	void Reset();
+
 	float FOV;
 	float aspectRatio;
 	float nearPlane;

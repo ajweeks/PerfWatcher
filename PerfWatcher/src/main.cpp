@@ -177,8 +177,6 @@ public:
 
 		g_OrbitCam = OrbitCam();
 
-		// ...
-
 		GLuint vertShaderID, fragShaderID;
 		g_MainProgram = glCreateProgram();
 		LoadGLShaders(g_MainProgram, RESOURCE_LOCATION "shaders/vert.v", RESOURCE_LOCATION "shaders/frag.f", vertShaderID, fragShaderID);
@@ -233,6 +231,8 @@ public:
 
 	void LoadFile(const std::string& filePath)
 	{
+		dataCols.clear();
+
 		std::vector<std::string> headers;
 		glm::vec2 minMaxValues;
 		std::vector<std::vector<float>> dataRows;
@@ -258,6 +258,8 @@ public:
 				dataCols.push_back(col);
 			}
 		}
+
+		dataCols.shrink_to_fit();
 
 		g_xScale = g_AreaSize.x;
 		g_yScale = g_AreaSize.y / (minMaxValues.y - minMaxValues.x);
@@ -309,6 +311,11 @@ public:
 		if (ImGui::IsKeyDown(GLFW_KEY_T))
 		{
 			g_yScaleMult.Reset();
+		}
+
+		if (ImGui::IsKeyDown(GLFW_KEY_R))
+		{
+			Reset();
 		}
 
 		g_OrbitCam.Tick();
@@ -571,13 +578,18 @@ public:
 		}
 		else if (g_MMBDown)
 		{
-			g_OrbitCam.Pan(g_OrbitCam.right * (float)dMousePos.x + g_OrbitCam.forward * (float)dMousePos.y);
+			g_OrbitCam.Pan(-g_OrbitCam.right * (float)dMousePos.x + g_OrbitCam.up * (float)dMousePos.y);
 		}
 	}
 
 	void ScrollCallback(float xOffset, float yOffset)
 	{
 		g_OrbitCam.Zoom(-yOffset);
+	}
+
+	void Reset()
+	{
+		g_OrbitCam.Reset();
 	}
 
 private:
