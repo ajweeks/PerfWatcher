@@ -176,7 +176,6 @@ public:
 
 		glClearColor(1, 0, 1, 1);
 
-
 		GLuint vertShaderID, fragShaderID;
 		g_MainProgram = glCreateProgram();
 		LoadGLShaders(g_MainProgram, RESOURCE_LOCATION "shaders/vert.v", RESOURCE_LOCATION "shaders/frag.f", vertShaderID, fragShaderID);
@@ -188,44 +187,17 @@ public:
 
 		GenerateFullScreenTri();
 
-		i32 plotCount = (i32)dataCols.size();
-		for (i32 i = 0; i < plotCount; ++i)
-		{
-			const std::vector<float>& col = dataCols[i];
-
-			GLuint VAO, VBO;
-
-			GenerateVertexBufferFromData(col, VAO, VBO);
-
-			g_DataVAOs.push_back(VAO);
-			g_DataVBOs.push_back(VBO);
-
-			glm::vec3 plotTranslation = glm::vec3(g_xScale * ((float)i / (plotCount - 1) - 0.5f), 0.0f, 0.0f);
-			glm::mat4 model = glm::translate(glm::mat4(1.0f), plotTranslation);
-			g_DataPlotModelMats.push_back(model);
-
-			for (i32 j = 0; j < (i32)col.size(); ++j)
-			{
-				GLuint pointVAO, pointVBO;
-				float percent = (float)j / col.size();
-
-				GenerateCubeVertexBuffer(g_DataPointSize, pointVAO, pointVBO);
-
-				glm::vec3 dataPointTranslation =  glm::vec3(0.0f, col[j], g_zScale * percent);
-				glm::mat4 dataPointModel = glm::translate(glm::mat4(1.0f), dataPointTranslation);
-				g_DataPointRenderData.emplace_back(dataPointModel, glm::vec4(1.0f));
-
-				g_DataPointVAOs.push_back(pointVAO);
-				g_DataPointVBOs.push_back(pointVBO);
-			}
-		}
-
 		GLuint axesVAO, axesVBO;
 		GenerateAxesVertexBuffer(g_HAxisCount, g_VAxisCount, axesVAO, axesVBO);
 		g_AxisVAOs.push_back(axesVAO);
 		g_AxisVBOs.push_back(axesVBO);
 
 		glEnable(GL_DEPTH_TEST);
+
+		for (auto& filePath : g_LoadedFiles)
+		{
+			LoadFile(filePath);
+		}
 	}
 
 	void LoadUserConfigFile()
@@ -238,15 +210,38 @@ public:
 
 		std::vector<std::string> userConfigFileContentsVec = Split(userConfigFileContents, '\n');
 		g_OrbitCam.ParseUserConfigFile(userConfigFileContentsVec);
+
+
+		i32 row = 0;
+		while (row < (i32)userConfigFileContentsVec.size())
+		{
+			if (userConfigFileContentsVec[row].compare("#loaded-files:") == 0)
+			{
+				row++;
+
+				while (row < (i32)userConfigFileContentsVec.size() &&
+					   userConfigFileContentsVec[row][0] != '#')
+				{
+					std::string path = RESOURCE_LOCATION + userConfigFileContentsVec[row];
+					g_LoadedFiles.emplace_back(path);
+					row++;
+				}
+			}
+			else
+			{
+				row++;
+			}
+		}
 	}
 
 	void LoadFile(const std::string& filePath)
 	{
-		dataCols.clear();
-
 		std::vector<std::string> headers;
 		glm::vec2 minMaxValues;
 		std::vector<std::vector<float>> dataRows;
+
+		const u32 startIndex = dataCols.size();
+
 		if (!ParseCSV(filePath.c_str(), headers, dataRows, minMaxValues, 30))
 		{
 			printf("Failed to load data from %s!\n", filePath.c_str());
@@ -255,7 +250,7 @@ public:
 		{
 			i32 rowCount = (i32)dataRows.size();
 			i32 colCount = (i32)dataRows[0].size();
-			dataCols.reserve(colCount);
+			dataCols.reserve(dataCols.size() + colCount);
 			for (i32 i = 0; i < colCount; i++)
 			{
 				std::vector<float> col;
@@ -270,7 +265,7 @@ public:
 			}
 		}
 
-		dataCols.shrink_to_fit();
+		const u32 endIndex = dataCols.size() - 1;
 
 		g_xScale = g_AreaSize.x;
 		g_yScale = g_AreaSize.y / (minMaxValues.y - minMaxValues.x);
@@ -278,14 +273,8 @@ public:
 
 		g_yScaleMult.Reset();
 
-
-		glDeleteBuffers(g_DataVAOs.size(), g_DataVAOs.data());
-		glDeleteBuffers(g_DataVBOs.size(), g_DataVBOs.data());
-		g_DataVAOs.clear();
-		g_DataVBOs.clear();
-
 		i32 plotCount = (i32)dataCols.size();
-		for (i32 i = 0; i < plotCount; ++i)
+		for (i32 i = startIndex; i <= endIndex; ++i)
 		{
 			const std::vector<float>& col = dataCols[i];
 

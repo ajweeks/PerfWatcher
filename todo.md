@@ -14,7 +14,6 @@
 [ ] Save
 	[ ] Sheets opened
 	[ ] Cam pos
-	[ ] 
 [ ] Zoom to show all data
 [ ] Camera panning
 [ ] Import & visualize non-per-frame data (summary files)
